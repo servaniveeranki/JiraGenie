@@ -1,0 +1,194 @@
+PROJECT: Real-Time Ride-Sharing Platform
+===========================================
+
+OVERVIEW:
+Build a scalable, cloud-native ride-sharing platform similar to Uber/Lyft that connects riders with drivers in real-time.
+The system should handle high traffic, provide real-time location tracking, efficient driver matching, and seamless payment processing.
+
+TARGET USERS:
+- Riders seeking quick and reliable transportation
+- Drivers looking to earn income by providing rides
+- Platform administrators managing operations
+
+KEY BUSINESS REQUIREMENTS:
+
+1. USER MANAGEMENT
+   - User registration and authentication (riders and drivers)
+   - Profile management with photo, payment methods, and preferences
+   - Driver verification and background check integration
+   - Rating and review system (5-star ratings)
+   - User activity history and trip records
+
+2. RIDE REQUEST & MATCHING
+   - Real-time ride request submission with pickup/dropoff locations
+   - Intelligent driver matching based on:
+     * Proximity to pickup location
+     * Driver availability and status
+     * Driver ratings and acceptance rate
+     * Estimated time of arrival (ETA)
+   - Ride request queue management using message queues
+   - Support for ride types (economy, premium, shared rides)
+   - Price estimation before booking
+
+3. REAL-TIME TRACKING & LOCATION SERVICES
+   - Live GPS tracking of driver location
+   - Real-time map updates for riders showing driver approach
+   - Route optimization using traffic data
+   - Geofencing for service areas
+   - Location history storage for analytics
+   - Redis cache for fast location lookups
+
+4. TRIP MANAGEMENT
+   - Trip lifecycle: requested → accepted → in-progress → completed → paid
+   - Trip details: route, duration, distance, fare breakdown
+   - Trip cancellation with penalty policies
+   - In-app chat/call between rider and driver
+   - Emergency SOS button with location sharing
+   - Persistent trip storage for historical analysis
+
+5. PAYMENT & BILLING
+   - Multiple payment methods (credit card, digital wallets, cash)
+   - Dynamic pricing with surge pricing during peak hours
+   - Automatic fare calculation based on distance, time, and demand
+   - Split payment options for shared rides
+   - Payment processing integration with Stripe/PayPal
+   - Invoice generation and receipt via email
+   - Driver earnings dashboard and payout management
+
+6. NOTIFICATIONS & ALERTS
+   - Real-time push notifications for:
+     * Ride requests (for drivers)
+     * Driver acceptance/arrival (for riders)
+     * Trip status updates
+     * Payment confirmations
+     * Promotional offers
+   - SMS and email notifications as backup
+   - In-app notification center
+
+7. ANALYTICS & REPORTING
+   - Real-time operational dashboard showing:
+     * Active rides
+     * Available drivers
+     * Revenue metrics
+     * User acquisition trends
+   - Historical trip analytics for demand forecasting
+   - Driver performance metrics
+   - Geographic heatmaps of ride density
+   - Revenue and financial reports
+
+TECHNICAL ARCHITECTURE:
+
+The system follows a microservices architecture deployed on AWS cloud infrastructure:
+
+FRONTEND:
+- Mobile apps: iOS (Swift) and Android (Kotlin)
+- Web dashboard: React.js for admin panel
+- Real-time updates via WebSocket connections
+
+BACKEND SERVICES:
+- API Gateway: AWS API Gateway for WebSocket and REST APIs
+- Authentication Service: JWT-based auth with AWS Cognito
+- User/Driver Profile Service: User data management
+- Dispatch Service: Lambda function for driver matching logic
+- Location Service: Real-time location processing
+- Trip Tracker Service: Active trip monitoring and updates
+- ETA Service: Estimated time calculations using traffic data
+- Billing Service: Fare calculation and payment processing
+- Notification Service: Multi-channel notification delivery
+
+DATA STORAGE:
+- User Profiles DB: AWS RDS MySQL for user/driver data
+- Trip DB: AWS Keyspaces (Cassandra) for high-volume trip records
+- Location Cache: AWS ElastiCache Redis for real-time location data
+- Message Queue: AWS SQS for asynchronous ride request processing
+
+ANALYTICS:
+- Real-time Analytics: AWS Kinesis + DynamoDB for operational metrics
+- Historical Analytics: AWS S3 + Athena for data warehouse
+- Location Analytics: Geospatial analysis using PostgreSQL with PostGIS
+
+INFRASTRUCTURE:
+- Containerization: Docker containers
+- Orchestration: AWS ECS/Fargate
+- Load Balancing: Application Load Balancer
+- CDN: CloudFront for static assets
+- Monitoring: CloudWatch + X-Ray for observability
+
+NON-FUNCTIONAL REQUIREMENTS:
+
+PERFORMANCE:
+- API response time: < 200ms for 95% of requests
+- Location updates: Every 3-5 seconds during active trips
+- Support 100,000+ concurrent users
+- Driver matching: < 2 seconds
+
+SCALABILITY:
+- Auto-scaling based on demand
+- Handle 10x traffic surge during peak hours
+- Database sharding for horizontal scaling
+- Stateless services for easy replication
+
+RELIABILITY:
+- 99.9% uptime SLA
+- Graceful degradation during partial outages
+- Data replication across multiple availability zones
+- Automated failover and disaster recovery
+
+SECURITY:
+- End-to-end encryption for sensitive data
+- PCI DSS compliance for payment processing
+- Regular security audits and penetration testing
+- Role-based access control (RBAC)
+- Data privacy compliance (GDPR, CCPA)
+
+COMPLIANCE & LEGAL:
+- Driver background check integration
+- Insurance verification
+- Terms of service and privacy policy
+- Compliance with local transportation regulations
+- Data retention policies
+
+PHASE 1 MVP (3-4 months):
+- Basic rider and driver registration
+- Simple ride request and driver matching
+- Real-time location tracking
+- Basic payment processing
+- Core notifications
+- Admin dashboard for monitoring
+
+PHASE 2 (Next 3-4 months):
+- Advanced driver matching algorithms
+- Surge pricing implementation
+- In-app chat/calling
+- Scheduled rides
+- Ride sharing (pool rides)
+- Enhanced analytics
+
+PHASE 3 (Future):
+- Multi-city expansion
+- AI-powered demand forecasting
+- Driver incentive programs
+- Corporate accounts for businesses
+- Integration with public transit
+- Electric vehicle (EV) charging station integration
+
+SUCCESS METRICS:
+- User acquisition: 50,000 active users in first 6 months
+- Driver onboarding: 5,000 active drivers
+- Average wait time: < 5 minutes
+- Trip completion rate: > 95%
+- User satisfaction: > 4.5 star average rating
+- Revenue: $1M GMV in first year
+
+TEAM REQUIREMENTS:
+- 2 Frontend Developers (Mobile)
+- 3 Backend Developers
+- 1 DevOps Engineer
+- 1 QA Engineer
+- 1 Product Manager
+- 1 UI/UX Designer
+
+ESTIMATED BUDGET: $500K - $750K for Phase 1 MVP
+TIMELINE: 3-4 months for MVP launch
+
+===== END OF REQUIREMENTS =====
