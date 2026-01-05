@@ -4,3 +4,5 @@ python-dotenv==1.0.1
 google-generativeai==0.8.3
 python-multipart==0.0.20
 pydantic==2.10.4
+atlassian-python-api==3.41.0
+requests==2.31.0

@@ -1,19 +1,28 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 import json
 import base64
 from pathlib import Path
+import logging
+from jira_router import router as jira_router
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI(title="JIRA Ticket Generator")
+
+# Include Jira router
+app.include_router(jira_router)
 
 # Configure CORS
 app.add_middleware(

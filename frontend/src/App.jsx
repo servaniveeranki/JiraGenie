@@ -1,527 +1,657 @@
-import { useState } from 'react'
-import { Upload, FileText, Image, CheckCircle, AlertCircle, Loader2, ChevronDown, ChevronRight, Layers, Target, CheckSquare, Sparkles, BarChart3, Filter } from 'lucide-react'
-import axios from 'axios'
+import { useState } from 'react';
+import { 
+  Upload, 
+  FileText, 
+  CheckCircle, 
+  AlertCircle, 
+  Loader2, 
+  ChevronRight, 
+  Layers, 
+  CheckSquare,
+  ChevronDown,
+  Filter,
+  BarChart3,
+  X,
+  Download
+} from 'lucide-react';
+import axios from 'axios';
 
 function App() {
-  const [uploadedFiles, setUploadedFiles] = useState([])
-  const [customPrompt, setCustomPrompt] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState(null)
-  const [error, setError] = useState(null)
-  const [expandedEpics, setExpandedEpics] = useState({})
-  const [expandedStories, setExpandedStories] = useState({})
-  const [categoryFilter, setCategoryFilter] = useState('ALL')
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [jiraLoading, setJiraLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [jiraError, setJiraError] = useState(null);
+  const [jiraSuccess, setJiraSuccess] = useState(null);
+  const [expandedEpics, setExpandedEpics] = useState({});
+  const [expandedStories, setExpandedStories] = useState({});
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Handle file drag and drop
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    handleFilesChange({ target: { files } });
+  };
 
   const handleFilesChange = (e) => {
-    const files = Array.from(e.target.files)
-    setUploadedFiles(files)
-    setError(null)
-  }
+    const files = Array.from(e.target.files || []);
+    setUploadedFiles(prev => [...prev, ...files]);
+    setError(null);
+  };
+
+  const removeFile = (index) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+  };
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
+    e.preventDefault();
     
     if (uploadedFiles.length === 0) {
-      setError('Please upload at least one file (text or images)')
-      return
+      setError('Please upload at least one file (text or images)');
+      return;
     }
 
-    setLoading(true)
-    setError(null)
-    setResult(null)
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    setJiraError(null);
+    setJiraSuccess(null);
 
     try {
-      const formData = new FormData()
+      const formData = new FormData();
       
       // Add all files
       uploadedFiles.forEach((file) => {
-        formData.append('files', file)
-      })
+        formData.append('files', file);
+      });
 
       // Add custom prompt if provided
       if (customPrompt.trim()) {
-        formData.append('customPrompt', customPrompt.trim())
+        formData.append('customPrompt', customPrompt.trim());
       }
 
       const response = await axios.post('http://localhost:8000/api/generate-tickets', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
-      })
+      });
 
-      setResult(response.data)
+      setResult(response.data);
     } catch (err) {
-      console.error('Error:', err)
-      setError(err.response?.data?.detail || 'Failed to generate tickets. Please try again.')
+      console.error('Error:', err);
+      setError(err.response?.data?.detail || 'Failed to generate tickets. Please try again.');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleReset = () => {
-    setUploadedFiles([])
-    setCustomPrompt('')
-    setResult(null)
-    setError(null)
-    setExpandedEpics({})
-    setExpandedStories({})
-    setCategoryFilter('ALL')
-  }
+    setUploadedFiles([]);
+    setCustomPrompt('');
+    setResult(null);
+    setError(null);
+    setJiraError(null);
+    setJiraSuccess(null);
+    setExpandedEpics({});
+    setExpandedStories({});
+    setCategoryFilter('ALL');
+  };
+
+  const handleCreateInJira = async () => {
+    if (!result?.aiOutput) {
+      setJiraError('No ticket data available. Please generate tickets first.');
+      return;
+    }
+
+    setJiraLoading(true);
+    setJiraError(null);
+    setJiraSuccess(null);
+
+    try {
+      const response = await axios.post('http://localhost:8000/api/jira/create-tickets', {
+        ai_output: result.aiOutput
+      });
+      
+      if (response.data.success) {
+        setJiraSuccess(
+          `Successfully created ${response.data.created_issues.epics.length} epics, ` +
+          `${response.data.created_issues.stories.length} stories, and ` +
+          `${response.data.created_issues.subtasks.length} subtasks in Jira!`
+        );
+      } else {
+        setJiraError(
+          `Some issues were not created: ${response.data.errors?.join(', ') || 'Unknown error'}`
+        );
+      }
+    } catch (err) {
+      console.error('Jira creation error:', err);
+      setJiraError(
+        err.response?.data?.detail || 
+        'Failed to create tickets in Jira. Please check your Jira configuration.'
+      );
+    } finally {
+      setJiraLoading(false);
+    }
+  };
 
   const toggleEpic = (epicIdx) => {
-    setExpandedEpics(prev => ({ ...prev, [epicIdx]: !prev[epicIdx] }))
-  }
+    setExpandedEpics(prev => ({
+      ...prev,
+      [epicIdx]: !prev[epicIdx]
+    }));
+  };
 
-  const toggleStory = (key) => {
-    setExpandedStories(prev => ({ ...prev, [key]: !prev[key] }))
-  }
+  const toggleStory = (epicIdx, storyIdx) => {
+    const key = `${epicIdx}-${storyIdx}`;
+    setExpandedStories(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
 
   const toggleAllEpics = () => {
     if (Object.keys(expandedEpics).length > 0) {
-      setExpandedEpics({})
-      setExpandedStories({})
+      setExpandedEpics({});
+      setExpandedStories({});
     } else {
-      const allExpanded = {}
+      const allExpanded = {};
       result?.aiOutput?.epics?.forEach((_, idx) => {
-        allExpanded[idx] = true
-      })
-      setExpandedEpics(allExpanded)
+        allExpanded[idx] = true;
+      });
+      setExpandedEpics(allExpanded);
     }
-  }
+  };
 
   const getFilteredEpics = () => {
-    if (!result?.aiOutput?.epics) return []
-    if (categoryFilter === 'ALL') return result.aiOutput.epics
-    return result.aiOutput.epics.filter(epic => epic.category === categoryFilter)
-  }
+    if (!result?.aiOutput?.epics) return [];
+    if (categoryFilter === 'ALL') return result.aiOutput.epics;
+    return result.aiOutput.epics.filter(
+      epic => epic.category === categoryFilter
+    );
+  };
+
+  const downloadJson = () => {
+    if (!result?.aiOutput) return;
+    
+    const dataStr = `data:text/json;charset=utf-8,${encodeURIComponent(
+      JSON.stringify(result.aiOutput, null, 2)
+    )}`;
+    
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute('href', dataStr);
+    downloadAnchorNode.setAttribute('download', 'jira-tickets.json');
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Navigation Bar */}
-      <nav className="bg-slate-950/50 backdrop-blur-xl border-b border-slate-700/50 sticky top-0 z-50">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 via-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/50">
-                <Sparkles className="w-7 h-7 text-white" />
-              </div>
-              <div>
-                <span className="text-2xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  JIRA Ticket Generator
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-slate-200">
+      {/* Navigation */}
+      <nav className="bg-slate-800/80 backdrop-blur-md border-b border-slate-700/50 sticky top-0 z-50">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 flex items-center">
+                <div className="h-10 w-10 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
+                  <Layers className="h-5 w-5 text-white" />
+                </div>
+                <span className="ml-3 text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
+                  JIRA Generator
                 </span>
-                <p className="text-xs text-slate-400">AI-Powered Agile Planning</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="px-4 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                <span className="text-xs text-slate-400">Powered by</span>
-                <span className="text-sm font-semibold text-transparent bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text ml-2">Gemini AI</span>
-              </div>
+            
+            <div className="flex items-center space-x-4">
+              {result && (
+                <>
+                  <button
+                    onClick={downloadJson}
+                    className="hidden sm:flex items-center px-3 py-1.5 text-sm font-medium rounded-md text-blue-300 hover:text-blue-100 bg-slate-700/50 hover:bg-slate-600/50 transition-colors"
+                  >
+                    <Download className="h-4 w-4 mr-1.5" />
+                    Export JSON
+                  </button>
+                  <button
+                    onClick={handleCreateInJira}
+                    disabled={jiraLoading}
+                    className={`flex items-center px-4 py-2 rounded-md font-medium ${
+                      jiraLoading
+                        ? 'bg-emerald-700/50 text-emerald-300 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700'
+                    } transition-colors`}
+                  >
+                    {jiraLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <Layers className="h-4 w-4 mr-2" />
+                        Create in Jira
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="container mx-auto px-6 py-12">
-        {/* Hero Section */}
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-extrabold text-white mb-4">
-            Transform Requirements into{' '}
-            <span className="bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-              Actionable Tickets
-            </span>
-          </h1>
-          <p className="text-lg text-slate-400 max-w-2xl mx-auto leading-relaxed">
-            Upload requirements and diagrams. AI extracts comprehensive Epics, Stories, and Subtasks.
-          </p>
-          <div className="mt-6 flex items-center justify-center gap-6 text-sm">
-            <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 rounded-lg border border-slate-700/30">
-              <CheckCircle className="w-4 h-4 text-emerald-400" />
-              <span className="text-slate-300">AI Analysis</span>
-            </div>
-            <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 rounded-lg border border-slate-700/30">
-              <CheckCircle className="w-4 h-4 text-emerald-400" />
-              <span className="text-slate-300">Custom Prompts</span>
-            </div>
-            <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 rounded-lg border border-slate-700/30">
-              <CheckCircle className="w-4 h-4 text-emerald-400" />
-              <span className="text-slate-300">Multi-file Support</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Upload Form */}
-        <div className="max-w-5xl mx-auto">
-          <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl border border-slate-700/50 overflow-hidden shadow-2xl">
-            <div className="bg-gradient-to-r from-cyan-600 via-blue-600 to-purple-600 px-8 py-5">
-              <h2 className="text-2xl font-bold text-white">Configure Analysis</h2>
-              <p className="text-cyan-100 mt-1">Customize AI prompt and upload files</p>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="p-8 space-y-6">
-            {/* Custom Prompt Input */}
-            <div className="bg-slate-900/50 rounded-xl p-6 border border-slate-700/50">
-              <label className="flex items-center gap-2 text-base font-bold text-white mb-4">
-                <span className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-lg flex items-center justify-center text-white text-sm font-bold shadow-lg">
-                  1
-                </span>
-                Custom AI Prompt (Optional)
-              </label>
-              <textarea
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
-                placeholder="Enter custom instructions... (Leave empty for default)&#10;&#10;Example: 'Focus on security stories. Include acceptance criteria and story points.'"
-                className="w-full h-32 px-4 py-3 bg-slate-950/50 border border-slate-700 rounded-lg focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 focus:outline-none resize-none text-sm text-slate-200 placeholder-slate-500 transition-all"
-              />
-              <p className="text-xs text-slate-400 mt-3 flex items-start gap-2">
-                <Sparkles className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
-                <span>Be specific: mention acceptance criteria, story points, or technical requirements.</span>
-              </p>
+      <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Upload Section */}
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden shadow-lg">
+            <div className="px-6 py-5 border-b border-slate-700/50 bg-gradient-to-r from-slate-800/50 to-slate-800/30">
+              <h2 className="text-xl font-semibold text-white">Generate JIRA Tickets</h2>
+              <p className="text-sm text-slate-400 mt-1">Upload requirements and let AI create your tickets</p>
             </div>
 
-            {/* Combined File Upload */}
-            <div className="bg-slate-900/50 rounded-xl p-6 border border-slate-700/50">
-              <label className="flex items-center gap-2 text-base font-bold text-white mb-4">
-                <span className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-white text-sm font-bold shadow-lg">
-                  2
-                </span>
-                Upload Files
-              </label>
-              <div className="border-2 border-dashed border-slate-600 rounded-xl p-8 hover:border-cyan-500 hover:bg-slate-900/30 transition-all cursor-pointer bg-slate-950/30">
-                <input
-                  type="file"
-                  accept=".txt,image/*"
-                  multiple
-                  onChange={handleFilesChange}
-                  className="hidden"
-                  id="files-upload"
-                />
-                <label
-                  htmlFor="files-upload"
-                  className="flex flex-col items-center cursor-pointer"
-                >
-                  <div className="flex gap-4 mb-4">
-                    <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/30 transform hover:scale-110 transition-transform">
-                      <FileText className="w-7 h-7 text-white" />
+            <div className="p-6">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Custom Prompt */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Custom Instructions (Optional)
+                  </label>
+                  <div className="relative">
+                    <textarea
+                      value={customPrompt}
+                      onChange={(e) => setCustomPrompt(e.target.value)}
+                      placeholder="E.g., 'Include acceptance criteria', 'Add story points', etc."
+                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg focus:ring-2 focus:ring-blue-500/50 focus:border-transparent text-slate-200 placeholder-slate-500 transition-all min-h-[100px] text-sm"
+                      maxLength={500}
+                    />
+                    <div className="absolute bottom-2 right-2 text-xs text-slate-500">
+                      {customPrompt.length}/500
                     </div>
-                    <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/30 transform hover:scale-110 transition-transform">
-                      <Image className="w-7 h-7 text-white" />
-                    </div>
-                  </div>
-                  <span className="text-base font-semibold text-slate-200 text-center mb-1">
-                    {uploadedFiles.length > 0
-                      ? `${uploadedFiles.length} file(s) selected`
-                      : 'Click or drag files here'}
-                  </span>
-                  <span className="text-sm text-slate-400 text-center">
-                    .txt files and images (PNG, JPG)
-                  </span>
-                </label>
-              </div>
-              {uploadedFiles.length > 0 && (
-                <div className="mt-4 space-y-2">
-                  <p className="text-sm font-semibold text-slate-300 mb-3">Selected Files:</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {uploadedFiles.map((file, idx) => (
-                      <div
-                        key={idx} 
-                        className={`flex items-center gap-3 px-4 py-2.5 rounded-lg border ${
-                          file.name.endsWith('.txt') 
-                            ? 'bg-cyan-500/10 border-cyan-500/30' 
-                            : 'bg-purple-500/10 border-purple-500/30'
-                        }`}
-                      >
-                        <span className="text-xl">
-                          {file.name.endsWith('.txt') ? '📄' : '🖼️'}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-200 truncate">{file.name}</p>
-                          <p className="text-xs text-slate-400">{(file.size / 1024).toFixed(1)} KB</p>
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-4">
-              <button
-                type="submit"
-                disabled={loading || uploadedFiles.length === 0}
-                className="flex-1 bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-600 text-white py-4 px-8 rounded-xl font-bold text-lg hover:shadow-lg hover:shadow-cyan-500/50 disabled:from-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed transition-all shadow-xl transform hover:-translate-y-0.5 flex items-center justify-center gap-3"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-6 h-6 animate-spin" />
-                    Analyzing with AI...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-6 h-6" />
-                    Generate JIRA Tickets
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={handleReset}
-                className="px-8 py-4 border-2 border-slate-600 rounded-xl font-semibold text-slate-300 hover:bg-slate-800/50 hover:border-slate-500 transition-all"
-              >
-                Reset
-              </button>
-            </div>
-          </form>
+                {/* File Upload */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Upload Requirements
+                  </label>
+                  <div 
+                    className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+                      isDragging 
+                        ? 'border-blue-500 bg-slate-800/30' 
+                        : 'border-slate-700 hover:border-slate-600 bg-slate-800/30 hover:bg-slate-800/50'
+                    }`}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                  >
+                    <input
+                      type="file"
+                      id="file-upload"
+                      className="hidden"
+                      multiple
+                      onChange={handleFilesChange}
+                      accept=".txt,.md,.pdf,.doc,.docx,image/*"
+                    />
+                    <label
+                      htmlFor="file-upload"
+                      className="flex flex-col items-center justify-center space-y-3 cursor-pointer"
+                    >
+                      <div className="p-3 rounded-full bg-slate-700/50">
+                        <Upload className="h-6 w-6 text-blue-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-200">
+                          {uploadedFiles.length > 0 
+                            ? `${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''} selected`
+                            : 'Drag and drop files here or click to browse'}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Supported: .txt, .md, .pdf, .doc, .docx, images
+                        </p>
+                      </div>
+                      <span className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                        Select files
+                      </span>
+                    </label>
+                  </div>
 
-          {/* Error Message */}
-          {error && (
-            <div className="m-8 bg-red-500/10 border-2 border-red-500/30 rounded-xl p-5 flex items-start gap-4">
-              <AlertCircle className="w-6 h-6 text-red-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-base font-bold text-red-300">Error</p>
-                <p className="text-sm text-red-400 mt-1">{error}</p>
-              </div>
-            </div>
-          )}
-          </div>
-        </div>
-
-        {/* Results Display */}
-        {result && (
-          <div className="max-w-7xl mx-auto mt-12">
-            <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl border border-slate-700/50 overflow-hidden shadow-2xl">
-              {/* Success Header */}
-              <div className="bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 px-8 py-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm shadow-lg">
-                      <CheckCircle className="w-8 h-8 text-white" />
+                  {/* Uploaded files list */}
+                  {uploadedFiles.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {uploadedFiles.map((file, index) => (
+                        <div 
+                          key={index}
+                          className="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-2 text-sm"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <FileText className="h-4 w-4 text-blue-400 flex-shrink-0" />
+                            <span className="truncate max-w-xs">{file.name}</span>
+                            <span className="text-xs text-slate-500">
+                              {(file.size / 1024).toFixed(1)} KB
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeFile(index)}
+                            className="text-slate-500 hover:text-red-400 transition-colors"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <div>
-                      <h2 className="text-3xl font-bold text-white">
-                        Tickets Generated Successfully!
-                      </h2>
-                      <p className="text-emerald-50 mt-1 text-base">
-                        {result.stats.epics} Epic(s) • {result.stats.imagesProcessed} Image(s) Processed
-                      </p>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-3">
+                  {result && (
+                    <button
+                      type="button"
+                      onClick={handleReset}
+                      className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors"
+                    >
+                      Start Over
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={uploadedFiles.length === 0 || loading}
+                    className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
+                      uploadedFiles.length === 0 || loading
+                        ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700'
+                    }`}
+                  >
+                    {loading ? (
+                      <span className="flex items-center justify-center">
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Generating...
+                      </span>
+                    ) : (
+                      'Generate Tickets'
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div className="mt-6 space-y-4">
+            {error && (
+              <div className="bg-red-900/30 border border-red-800/50 text-red-200 px-4 py-3 rounded-lg flex items-start space-x-3">
+                <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h3 className="font-medium">Error</h3>
+                  <p className="text-sm">{error}</p>
+                </div>
+              </div>
+            )}
+
+            {jiraError && (
+              <div className="bg-amber-900/30 border border-amber-800/50 text-amber-200 px-4 py-3 rounded-lg flex items-start space-x-3">
+                <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h3 className="font-medium">Jira Error</h3>
+                  <p className="text-sm">{jiraError}</p>
+                </div>
+              </div>
+            )}
+
+            {jiraSuccess && (
+              <div className="bg-green-900/30 border border-green-800/50 text-green-200 px-4 py-3 rounded-lg flex items-start space-x-3">
+                <CheckCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h3 className="font-medium">Success!</h3>
+                  <p className="text-sm">{jiraSuccess}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Results */}
+          {result && (
+            <div className="mt-8">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Generated Tickets</h2>
+                  <p className="text-sm text-slate-400">
+                    {result.stats.epics} Epics • {result.stats.stories} Stories • {result.stats.subtasks} Subtasks
+                  </p>
+                </div>
+                
+                <div className="mt-4 sm:mt-0 flex items-center space-x-3">
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Filter className="h-4 w-4 text-slate-500" />
+                    </div>
+                    <select
+                      value={categoryFilter}
+                      onChange={(e) => setCategoryFilter(e.target.value)}
+                      className="pl-10 pr-8 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-sm text-slate-200 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent appearance-none"
+                    >
+                      <option value="ALL">All Categories</option>
+                      <option value="FUNCTIONAL">Functional</option>
+                      <option value="NON-FUNCTIONAL">Non-Functional</option>
+                    </select>
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                      <ChevronDown className="h-4 w-4 text-slate-400" />
                     </div>
                   </div>
+                  
                   <button
                     onClick={toggleAllEpics}
-                    className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white font-semibold text-sm transition-all flex items-center gap-2"
+                    className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-800/50 hover:bg-slate-700/50 text-slate-300 hover:text-white transition-colors"
                   >
                     {Object.keys(expandedEpics).length > 0 ? 'Collapse All' : 'Expand All'}
-                    <Layers className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
-              {/* Stats and Filters */}
-              <div className="px-8 pt-6 pb-4 bg-slate-900/30">
-                <div className="grid grid-cols-3 gap-4">
-                  <button
-                    onClick={() => setCategoryFilter('ALL')}
-                    className={`p-4 rounded-xl border-2 transition-all ${
-                      categoryFilter === 'ALL'
-                        ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border-cyan-500/50'
-                        : 'bg-slate-900/30 border-slate-700/50 hover:border-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg">
-                        {result.aiOutput.epics?.length || 0}
-                      </div>
-                      <div className="text-left">
-                        <p className="text-xs font-semibold text-cyan-400 uppercase">All Epics</p>
-                        <p className="text-sm text-slate-400">Complete overview</p>
-                      </div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => setCategoryFilter('FUNCTIONAL')}
-                    className={`p-4 rounded-xl border-2 transition-all ${
-                      categoryFilter === 'FUNCTIONAL'
-                        ? 'bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border-blue-500/50'
-                        : 'bg-slate-900/30 border-slate-700/50 hover:border-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg">
-                        {result.aiOutput.epics?.filter(e => e.category === 'FUNCTIONAL').length || 0}
-                      </div>
-                      <div className="text-left">
-                        <p className="text-xs font-semibold text-blue-400 uppercase">Functional</p>
-                        <p className="text-sm text-slate-400">Feature-focused</p>
-                      </div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => setCategoryFilter('NON-FUNCTIONAL')}
-                    className={`p-4 rounded-xl border-2 transition-all ${
-                      categoryFilter === 'NON-FUNCTIONAL'
-                        ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border-purple-500/50'
-                        : 'bg-slate-900/30 border-slate-700/50 hover:border-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg">
-                        {result.aiOutput.epics?.filter(e => e.category === 'NON-FUNCTIONAL').length || 0}
-                      </div>
-                      <div className="text-left">
-                        <p className="text-xs font-semibold text-purple-400 uppercase">Non-Functional</p>
-                        <p className="text-sm text-slate-400">Quality & perf.</p>
-                      </div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Epics Display */}
-              <div className="p-8 space-y-4 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800">
-                {getFilteredEpics().map((epic, epicIdx) => {
-                  const actualIdx = result.aiOutput.epics.indexOf(epic);
-                  const isExpanded = expandedEpics[actualIdx];
-                  const isFunctional = epic.category === 'FUNCTIONAL';
-                  const categoryColor = isFunctional 
-                    ? { bg: 'from-blue-900/30 to-indigo-900/30', border: 'border-blue-500/30', header: 'from-blue-600 to-indigo-600', badge: 'bg-blue-500', glow: 'shadow-blue-500/20' }
-                    : { bg: 'from-purple-900/30 to-pink-900/30', border: 'border-purple-500/30', header: 'from-purple-600 to-pink-600', badge: 'bg-purple-500', glow: 'shadow-purple-500/20' };
-                  
-                  return (
-                    <div key={actualIdx} className={`bg-gradient-to-br ${categoryColor.bg} rounded-xl border ${categoryColor.border} overflow-hidden shadow-lg ${categoryColor.glow} hover:shadow-xl transition-all`}>
+              <div className="space-y-4">
+                {getFilteredEpics().length > 0 ? (
+                  getFilteredEpics().map((epic, epicIdx) => (
+                    <div 
+                      key={epicIdx} 
+                      className="bg-slate-800/30 rounded-xl border border-slate-700/50 overflow-hidden transition-all"
+                    >
+                      {/* Epic Header */}
                       <button
-                        onClick={() => toggleEpic(actualIdx)}
-                        className={`w-full bg-gradient-to-r ${categoryColor.header} px-6 py-4 text-left hover:opacity-90 transition-opacity`}
+                        onClick={() => toggleEpic(epicIdx)}
+                        className="w-full px-5 py-4 text-left flex items-center justify-between hover:bg-slate-800/50 transition-colors group"
                       >
-                        <div className="flex items-center gap-3 flex-wrap">
-                          {isExpanded ? <ChevronDown className="w-5 h-5 text-white" /> : <ChevronRight className="w-5 h-5 text-white" />}
-                          <span className="px-3 py-1 bg-white/20 text-white text-xs font-bold rounded-lg backdrop-blur-sm">
-                            EPIC {epic.epicNumber || actualIdx + 1}
-                          </span>
-                          <span className={`px-3 py-1 ${categoryColor.badge} text-white text-xs font-bold rounded-lg`}>
-                            {epic.category || 'FUNCTIONAL'}
-                          </span>
-                          <h3 className="text-xl font-bold text-white flex-1">
-                            {epic.summary}
-                          </h3>
-                          <div className="flex items-center gap-2 px-3 py-1 bg-white/10 rounded-lg">
-                            <Target className="w-4 h-4 text-white/80" />
-                            <span className="text-xs text-white/90 font-semibold">{epic.stories?.length || 0} Stories</span>
+                        <div className="flex items-center space-x-3">
+                          <ChevronRight
+                            className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${
+                              expandedEpics[epicIdx] ? 'transform rotate-90' : ''
+                            }`}
+                          />
+                          <div>
+                            <div className="flex items-center space-x-2">
+                              <span className="font-medium text-blue-300 group-hover:text-blue-200">
+                                {epic.summary}
+                              </span>
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/50 text-blue-200">
+                                Epic
+                              </span>
+                              {epic.category && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700/50 text-slate-300">
+                                  {epic.category}
+                                </span>
+                              )}
+                            </div>
+                            {epic.description && (
+                              <p className="text-sm text-slate-400 mt-1 line-clamp-1">
+                                {epic.description}
+                              </p>
+                            )}
                           </div>
                         </div>
-                        {isExpanded && (
-                          <p className="text-white/90 mt-3 text-sm leading-relaxed">
-                            {epic.description}
-                          </p>
-                        )}
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs px-2 py-1 bg-slate-700/50 rounded-full text-slate-300">
+                            {epic.stories?.length || 0} {epic.stories?.length === 1 ? 'story' : 'stories'}
+                          </span>
+                        </div>
                       </button>
 
                       {/* Stories */}
-                      {isExpanded && (
-                        <div className="p-6 space-y-3 bg-slate-900/20">
-                          {epic.stories?.map((story, storyIdx) => {
-                            const storyKey = `${actualIdx}-${storyIdx}`;
-                            const isStoryExpanded = expandedStories[storyKey];
-                            const priorityColors = {
-                              'High': 'bg-red-500/20 text-red-300 border-red-500/40',
-                              'Medium': 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40',
-                              'Low': 'bg-green-500/20 text-green-300 border-green-500/40'
-                            };
-                            const priorityColor = priorityColors[story.priority] || 'bg-slate-500/20 text-slate-300 border-slate-500/40';
-                            
-                            return (
-                              <div key={storyIdx} className="bg-slate-800/50 rounded-lg border border-slate-700/50 shadow-md hover:shadow-lg transition-all overflow-hidden">
-                                <button
-                                  onClick={() => toggleStory(storyKey)}
-                                  className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-3 text-left hover:opacity-90 transition-opacity"
-                                >
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    {isStoryExpanded ? <ChevronDown className="w-4 h-4 text-white" /> : <ChevronRight className="w-4 h-4 text-white" />}
-                                    <span className="px-2 py-1 bg-white/20 text-white text-xs font-bold rounded backdrop-blur-sm">
-                                      STORY {story.storyNumber || `${epic.epicNumber || actualIdx + 1}.${storyIdx + 1}`}
+                      {expandedEpics[epicIdx] && (
+                        <div className="divide-y divide-slate-700/30">
+                          {epic.stories?.map((story, storyIdx) => (
+                            <div key={storyIdx} className="bg-slate-800/20 pl-12 pr-5 py-4">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-2">
+                                    <CheckSquare className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
+                                    <span className="font-medium text-slate-200">
+                                      {story.summary}
                                     </span>
                                     {story.priority && (
-                                      <span className={`px-2 py-1 text-xs font-bold rounded border ${priorityColor}`}>
+                                      <span 
+                                        className={`text-xs px-2 py-0.5 rounded-full ${
+                                          story.priority.toLowerCase() === 'high' 
+                                            ? 'bg-red-900/50 text-red-200' 
+                                            : story.priority.toLowerCase() === 'medium' 
+                                              ? 'bg-yellow-900/50 text-yellow-200' 
+                                              : 'bg-blue-900/50 text-blue-200'
+                                        }`}
+                                      >
                                         {story.priority}
                                       </span>
                                     )}
-                                    <h4 className="text-base font-bold text-white flex-1">
-                                      {story.summary}
-                                    </h4>
-                                    <div className="flex items-center gap-1 px-2 py-1 bg-white/10 rounded">
-                                      <CheckSquare className="w-3 h-3 text-white/80" />
-                                      <span className="text-xs text-white/90 font-semibold">{story.subtasks?.length || 0}</span>
-                                    </div>
                                   </div>
-                                </button>
-                                {isStoryExpanded && (
-                                  <div className="p-5">
-                                    <p className="text-sm text-slate-300 leading-relaxed mb-4">
+                                  
+                                  {story.description && (
+                                    <p className="text-sm text-slate-400 mt-1 ml-6">
                                       {story.description}
                                     </p>
+                                  )}
 
-                                    {/* Subtasks */}
-                                    {story.subtasks && story.subtasks.length > 0 && (
-                                      <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
-                                        <p className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
-                                          <span className="w-5 h-5 bg-emerald-500 rounded flex items-center justify-center text-white text-xs">
-                                            {story.subtasks.length}
-                                          </span>
-                                          Subtasks
-                                        </p>
-                                        <div className="space-y-2">
+                                  {/* Subtasks */}
+                                  {story.subtasks?.length > 0 && (
+                                    <div className="mt-3 ml-6">
+                                      <button
+                                        onClick={() => toggleStory(epicIdx, storyIdx)}
+                                        className="flex items-center text-xs text-slate-400 hover:text-slate-300 transition-colors"
+                                      >
+                                        <ChevronRight
+                                          className={`h-3.5 w-3.5 mr-1 transition-transform duration-200 ${
+                                            expandedStories[`${epicIdx}-${storyIdx}`] 
+                                              ? 'transform rotate-90' 
+                                              : ''
+                                          }`}
+                                        />
+                                        {story.subtasks.length} subtasks
+                                      </button>
+
+                                      {expandedStories[`${epicIdx}-${storyIdx}`] && (
+                                        <ul className="mt-2 ml-4 space-y-2">
                                           {story.subtasks.map((subtask, subIdx) => (
-                                            <div key={subIdx} className="flex items-start gap-3 bg-slate-800/50 rounded-lg px-4 py-2.5 border border-slate-700/50 hover:border-emerald-500/50 transition-colors">
-                                              <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
-                                              <div className="flex-1">
-                                                <span className="text-xs text-slate-500 font-semibold">
-                                                  {subtask.subtaskNumber || `${story.storyNumber || `${epic.epicNumber || actualIdx + 1}.${storyIdx + 1}`}.${subIdx + 1}`}
-                                                </span>
-                                                <p className="text-sm text-slate-300 mt-0.5">
-                                                  {subtask.summary}
-                                                </p>
-                                              </div>
-                                            </div>
+                                            <li 
+                                              key={subIdx} 
+                                              className="flex items-start"
+                                            >
+                                              <span className="w-1.5 h-1.5 mt-2 bg-slate-500 rounded-full flex-shrink-0 mr-2"></span>
+                                              <span className="text-sm text-slate-300">
+                                                {subtask.summary}
+                                              </span>
+                                            </li>
                                           ))}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            );
-                          })}
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
-                  );
-                })}
+                  ))
+                ) : (
+                  <div className="text-center py-12 bg-slate-800/30 rounded-xl border-2 border-dashed border-slate-700/50">
+                    <BarChart3 className="h-10 w-10 mx-auto text-slate-500 mb-3" />
+                    <h3 className="text-lg font-medium text-slate-300">No matching epics found</h3>
+                    <p className="text-slate-500 mt-1 text-sm">
+                      Try adjusting your filters or generate new tickets with different requirements.
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* Download JSON */}
-              <div className="p-8 pt-4 bg-slate-900/30 border-t border-slate-700/50">
+              {/* Export Options */}
+              <div className="mt-8 flex flex-wrap justify-end gap-3">
                 <button
-                  onClick={() => {
-                    const dataStr = JSON.stringify(result.aiOutput, null, 2)
-                    const dataBlob = new Blob([dataStr], { type: 'application/json' })
-                    const url = URL.createObjectURL(dataBlob)
-                    const link = document.createElement('a')
-                    link.href = url
-                    link.download = 'jira-tickets.json'
-                    link.click()
-                  }}
-                  className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-purple-700 text-white py-4 px-6 rounded-xl font-bold text-lg hover:shadow-lg hover:shadow-cyan-500/50 transition-all shadow-xl flex items-center justify-center gap-3"
+                  onClick={downloadJson}
+                  className="flex items-center px-4 py-2 text-sm font-medium rounded-lg bg-slate-800/50 hover:bg-slate-700/50 text-slate-300 hover:text-white transition-colors"
                 >
-                  <BarChart3 className="w-6 h-6" />
-                  Download JSON for JIRA
+                  <Download className="h-4 w-4 mr-2" />
+                  Download JSON
+                </button>
+                <button
+                  onClick={handleCreateInJira}
+                  disabled={jiraLoading}
+                  className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg ${
+                    jiraLoading
+                      ? 'bg-emerald-700/50 text-emerald-300 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700'
+                  } transition-colors`}
+                >
+                  {jiraLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creating in Jira...
+                    </>
+                  ) : (
+                    <>
+                      <Layers className="h-4 w-4 mr-2" />
+                      Create in Jira
+                    </>
+                  )}
                 </button>
               </div>
             </div>
+          )}
+        </div>
+      </main>
+
+      <footer className="mt-12 py-6 border-t border-slate-800">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col md:flex-row justify-between items-center">
+            <div className="flex items-center space-x-2">
+              <div className="h-6 w-6 rounded-md bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
+                <Layers className="h-3.5 w-3.5 text-white" />
+              </div>
+              <span className="text-sm font-medium text-slate-400">
+                JIRA Ticket Generator
+              </span>
+            </div>
+            <div className="mt-4 md:mt-0 text-sm text-slate-500">
+              &copy; {new Date().getFullYear()} All rights reserved.
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      </footer>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
