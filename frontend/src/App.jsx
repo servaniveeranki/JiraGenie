@@ -149,6 +149,60 @@ function App() {
     }
   };
 
+  const handleCreateDirectlyFromFile = async () => {
+    if (uploadedFiles.length === 0) {
+      setJiraError('Please upload a requirements file first.');
+      return;
+    }
+
+    setJiraLoading(true);
+    setJiraError(null);
+    setJiraSuccess(null);
+
+    try {
+      const formData = new FormData();
+      uploadedFiles.forEach((file) => {
+        formData.append('files', file);
+      });
+
+      if (customPrompt.trim()) {
+        formData.append('customPrompt', customPrompt.trim());
+      }
+
+      const response = await axios.post('http://localhost:8000/api/jira/create-from-file', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      
+      if (response.data.success) {
+        setJiraSuccess(response.data.message);
+      } else {
+        setJiraError(
+          response.data.message || 
+          `Some issues were not created: ${response.data.errors?.join(', ') || 'Unknown error'}`
+        );
+        if (response.data.created_issues && 
+            (response.data.created_issues.epics?.length > 0 || 
+             response.data.created_issues.stories?.length > 0)) {
+          setJiraSuccess(
+            `Partially successful: Created ${response.data.created_issues.epics?.length || 0} epics, ` +
+            `${response.data.created_issues.stories?.length || 0} stories, ` +
+            `${response.data.created_issues.subtasks?.length || 0} subtasks`
+          );
+        }
+      }
+    } catch (err) {
+      console.error('Direct Jira creation error:', err);
+      setJiraError(
+        err.response?.data?.detail || 
+        'Failed to create tickets in Jira. Please check your Jira configuration.'
+      );
+    } finally {
+      setJiraLoading(false);
+    }
+  };
+
   const toggleEpic = (epicIdx) => {
     setExpandedEpics(prev => ({
       ...prev,
@@ -218,6 +272,29 @@ function App() {
             </div>
             
             <div className="flex items-center space-x-4">
+              {uploadedFiles.length > 0 && (
+                <button
+                  onClick={handleCreateDirectlyFromFile}
+                  disabled={jiraLoading}
+                  className={`flex items-center px-4 py-2 rounded-md font-medium ${
+                    jiraLoading
+                      ? 'bg-emerald-700/50 text-emerald-300 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700'
+                  } transition-colors`}
+                >
+                  {jiraLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creating in Jira...
+                    </>
+                  ) : (
+                    <>
+                      <Layers className="h-4 w-4 mr-2" />
+                      Create in Jira (Direct)
+                    </>
+                  )}
+                </button>
+              )}
               {result && (
                 <>
                   <button
