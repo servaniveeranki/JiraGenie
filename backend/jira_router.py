@@ -1,7 +1,9 @@
-from fastapi import APIRouter, HTTPException, File, UploadFile
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, File, UploadFile
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional
 import logging
+import asyncio
+from concurrent.futures import CancelledError
 from jira_service import JiraService
 import google.generativeai as genai
 import os
@@ -28,6 +30,10 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 class JiraCreateRequest(BaseModel):
     ai_output: Dict[str, Any] = Field(..., description="AI-generated output with epics, stories, and subtasks")
+    jira_url: str
+    project_key: str
+    email: str
+    api_token: str
 
 class JiraCreateResponse(BaseModel):
     success: bool
@@ -36,25 +42,110 @@ class JiraCreateResponse(BaseModel):
     errors: List[str] = []
 
 @router.post("/create-tickets", response_model=JiraCreateResponse)
-async def create_jira_tickets(request: JiraCreateRequest):
+async def create_jira_tickets(request: JiraCreateRequest, http_request: Request):
     """
-    Create JIRA tickets from the AI-generated output
+    Create JIRA tickets from the AI-generated output using user-provided Jira credentials
     """
     try:
         logger = logging.getLogger(__name__)
-        
-        if not jira_service or not jira_service._is_configured():
+
+        # Dynamically instantiate JiraService with user credentials
+        from atlassian import Jira
+        class DynamicJiraService(JiraService):
+            def __init__(self, jira_url, email, api_token, project_key):
+                self.jira = Jira(
+                    url=jira_url,
+                    username=email,
+                    password=api_token,
+                    cloud=True
+                )
+                self.project_key = project_key
+                self.epic_name_field = self._get_epic_name_field()
+                self.epic_link_field = self._get_epic_link_field()
+                self.available_issue_types = self._get_available_issue_types()
+                self.story_issue_type = self._detect_story_issue_type()
+                self.subtask_issue_type = self._detect_subtask_issue_type()
+            def _is_configured(self):
+                return self.jira is not None and self.project_key is not None
+            async def create_issues(self, data: Dict, request_obj: Request = None) -> Dict:
+                """Create Epics, Stories, and Subtasks in Jira with cancellation support"""
+                results = {
+                    'epics': [],
+                    'stories': [],
+                    'subtasks': [],
+                    'errors': []
+                }
+                
+                try:
+                    for epic in data.get('epics', []):
+                        # Check for cancellation
+                        if request_obj and await request_obj.is_disconnected():
+                            logger.info("Client disconnected, cancelling ticket creation")
+                            results['errors'].append("Ticket creation was cancelled by client")
+                            return results
+                        
+                        # Create Epic
+                        epic_result = await self.create_epic(epic)
+                        if epic_result:
+                            results['epics'].append(epic_result)
+                            
+                            # Create Stories for this Epic, linked to epic
+                            epic_key = epic_result['key']
+                            for story in epic.get('stories', []):
+                                # Check for cancellation
+                                if request_obj and await request_obj.is_disconnected():
+                                    logger.info("Client disconnected, cancelling ticket creation")
+                                    results['errors'].append("Ticket creation was cancelled by client")
+                                    return results
+                                
+                                story_result = await self.create_story(story, epic_key)  # Link to epic
+                                if story_result:
+                                    results['stories'].append(story_result)
+                                    
+                                    # Create Subtasks for this Story
+                                    for subtask in story.get('subtasks', []):
+                                        # Check for cancellation
+                                        if request_obj and await request_obj.is_disconnected():
+                                            logger.info("Client disconnected, cancelling ticket creation")
+                                            results['errors'].append("Ticket creation was cancelled by client")
+                                            return results
+                                        
+                                        subtask_result = await self.create_subtask(subtask, story_result['key'])
+                                        if subtask_result:
+                                            results['subtasks'].append(subtask_result)
+                                        else:
+                                            results['errors'].append(f"Failed to create subtask: {subtask['summary']}")
+                                else:
+                                    results['errors'].append(f"Failed to create story: {story['summary']}")
+                        else:
+                            results['errors'].append(f"Failed to create epic: {epic['summary']}")
+                    
+                    return results
+                    
+                except Exception as e:
+                    error_msg = f"Error creating issues in Jira: {str(e)}"
+                    logger.error(error_msg)
+                    results['errors'].append(error_msg)
+                    return results
+
+        user_jira_service = DynamicJiraService(
+            request.jira_url,
+            request.email,
+            request.api_token,
+            request.project_key
+        )
+
+        if not user_jira_service._is_configured():
             return JiraCreateResponse(
                 success=False,
-                message="JIRA service is not configured. Please set JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, and JIRA_PROJECT_KEY in the .env file.",
+                message="JIRA service is not configured. Please check the Jira credentials you provided.",
                 created_issues={},
                 errors=["JIRA credentials not configured"]
             )
-        
-        logger.info("Starting Jira ticket creation...")
-        
-        result = await jira_service.create_issues(request.ai_output)
-        
+
+        logger.info("Starting Jira ticket creation (user-provided credentials)...")
+        result = await user_jira_service.create_issues(request.ai_output, http_request)
+
         if result['errors']:
             return JiraCreateResponse(
                 success=False,
@@ -66,7 +157,7 @@ async def create_jira_tickets(request: JiraCreateRequest):
                 },
                 errors=result['errors']
             )
-        
+
         return JiraCreateResponse(
             success=True,
             message="All JIRA tickets created successfully",
@@ -89,7 +180,8 @@ async def create_jira_tickets(request: JiraCreateRequest):
 @router.post("/create-from-file", response_model=JiraCreateResponse)
 async def create_jira_tickets_from_file(
     files: List[UploadFile] = File(...),
-    customPrompt: Optional[str] = None
+    customPrompt: Optional[str] = None,
+    http_request: Request = None
 ):
     """
     Directly create JIRA tickets from requirements file - independent flow
@@ -134,12 +226,33 @@ async def create_jira_tickets_from_file(
             from main import run_ai_analysis
         except ImportError:
             raise HTTPException(status_code=500, detail="Server misconfiguration: cannot import run_ai_analysis")
+        
+        # Check for cancellation before AI analysis
+        if http_request and await http_request.is_disconnected():
+            logger.info("Client disconnected, cancelling ticket creation")
+            return JiraCreateResponse(
+                success=False,
+                message="Ticket creation was cancelled by client",
+                created_issues={},
+                errors=["Ticket creation was cancelled by client"]
+            )
+        
         structured_data = await run_ai_analysis(requirements_text, image_bytes_list if image_bytes_list else None, customPrompt)
         logger.info(f"AI analysis complete. Found {len(structured_data.get('epics', []))} epics")
         
-        # Create tickets directly
+        # Check for cancellation after AI analysis
+        if http_request and await http_request.is_disconnected():
+            logger.info("Client disconnected, cancelling ticket creation")
+            return JiraCreateResponse(
+                success=False,
+                message="Ticket creation was cancelled by client",
+                created_issues={},
+                errors=["Ticket creation was cancelled by client"]
+            )
+        
+        # Create tickets directly with cancellation support
         logger.info("Creating tickets in Jira...")
-        result = await jira_service.create_issues(structured_data)
+        result = await jira_service.create_issues(structured_data, http_request)
         
         if result['errors']:
             return JiraCreateResponse(

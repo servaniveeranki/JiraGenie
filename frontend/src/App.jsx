@@ -8,18 +8,24 @@ import {
   ChevronRight, 
   Layers, 
   CheckSquare,
+  X,
   ChevronDown,
   Filter,
   BarChart3,
-  X,
   Download
 } from 'lucide-react';
 import axios from 'axios';
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 
 
 function App() {
   const [uploadedFiles, setUploadedFiles] = useState([]);
+  // Jira credentials (per session, not stored)
+  const [jiraUrl, setJiraUrl] = useState('');
+  const [jiraProjectKey, setJiraProjectKey] = useState('');
+  const [jiraEmail, setJiraEmail] = useState('');
+  const [jiraApiToken, setJiraApiToken] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [jiraLoading, setJiraLoading] = useState(false);
@@ -31,6 +37,7 @@ function App() {
   const [expandedStories, setExpandedStories] = useState({});
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [isDragging, setIsDragging] = useState(false);
+  const [cancelController, setCancelController] = useState(null);
 
   // Handle file drag and drop
   const handleDragOver = (e) => {
@@ -107,6 +114,13 @@ function App() {
     }
   };
 
+  const handleCancelJiraCreation = () => {
+    if (cancelController) {
+      cancelController.abort();
+      setCancelController(null);
+    }
+  };
+
   const handleReset = () => {
     setUploadedFiles([]);
     setCustomPrompt('');
@@ -117,6 +131,15 @@ function App() {
     setExpandedEpics({});
     setExpandedStories({});
     setCategoryFilter('ALL');
+    setJiraUrl('');
+    setJiraProjectKey('');
+    setJiraEmail('');
+    setJiraApiToken('');
+    // Cancel any ongoing Jira creation
+    if (cancelController) {
+      cancelController.abort();
+      setCancelController(null);
+    }
   };
 
   const handleCreateInJira = async () => {
@@ -125,17 +148,27 @@ function App() {
       return;
     }
 
+    // Create AbortController for cancellation
+    const controller = new AbortController();
+    setCancelController(controller);
     setJiraLoading(true);
     setJiraError(null);
     setJiraSuccess(null);
 
     try {
       const response = await axios.post(
-  `${API_BASE_URL}/api/jira/create-tickets`,
-  {
-    ai_output: result.aiOutput
-  }
-);
+        `${API_BASE_URL}/api/jira/create-tickets`,
+        {
+          ai_output: result.aiOutput,
+          jira_url: jiraUrl,
+          project_key: jiraProjectKey,
+          email: jiraEmail,
+          api_token: jiraApiToken
+        },
+        {
+          signal: controller.signal
+        }
+      );
 
       
       if (response.data.success) {
@@ -150,13 +183,18 @@ function App() {
         );
       }
     } catch (err) {
-      console.error('Jira creation error:', err);
-      setJiraError(
-        err.response?.data?.detail || 
-        'Failed to create tickets in Jira. Please check your Jira configuration.'
-      );
+      if (axios.isCancel(err)) {
+        setJiraError('Ticket creation was cancelled.');
+      } else {
+        console.error('Jira creation error:', err);
+        setJiraError(
+          err.response?.data?.detail || 
+          'Failed to create tickets in Jira. Please check your Jira configuration.'
+        );
+      }
     } finally {
       setJiraLoading(false);
+      setCancelController(null);
     }
   };
 
@@ -166,6 +204,9 @@ function App() {
       return;
     }
 
+    // Create AbortController for cancellation
+    const controller = new AbortController();
+    setCancelController(controller);
     setJiraLoading(true);
     setJiraError(null);
     setJiraSuccess(null);
@@ -181,14 +222,15 @@ function App() {
       }
 
       const response = await axios.post(
-  `${API_BASE_URL}/api/jira/create-from-file`,
-  formData,
-  {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  }
-);
+        `${API_BASE_URL}/api/jira/create-from-file`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          signal: controller.signal
+        }
+      );
 
       
       if (response.data.success) {
@@ -209,13 +251,18 @@ function App() {
         }
       }
     } catch (err) {
-      console.error('Direct Jira creation error:', err);
-      setJiraError(
-        err.response?.data?.detail || 
-        'Failed to create tickets in Jira. Please check your Jira configuration.'
-      );
+      if (axios.isCancel(err)) {
+        setJiraError('Ticket creation was cancelled.');
+      } else {
+        console.error('Jira creation error:', err);
+        setJiraError(
+          err.response?.data?.detail || 
+          'Failed to create tickets in Jira. Please check your Jira configuration.'
+        );
+      }
     } finally {
       setJiraLoading(false);
+      setCancelController(null);
     }
   };
 
@@ -289,27 +336,38 @@ function App() {
             
             <div className="flex items-center space-x-4">
               {uploadedFiles.length > 0 && (
-                <button
-                  onClick={handleCreateDirectlyFromFile}
-                  disabled={jiraLoading}
-                  className={`flex items-center px-4 py-2 rounded-md font-medium ${
-                    jiraLoading
-                      ? 'bg-emerald-700/50 text-emerald-300 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700'
-                  } transition-colors`}
-                >
-                  {jiraLoading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Creating in Jira...
-                    </>
-                  ) : (
-                    <>
-                      <Layers className="h-4 w-4 mr-2" />
-                      Create in Jira (Direct)
-                    </>
+                <>
+                  <button
+                    onClick={handleCreateDirectlyFromFile}
+                    disabled={jiraLoading}
+                    className={`flex items-center px-4 py-2 rounded-md font-medium ${
+                      jiraLoading
+                        ? 'bg-emerald-700/50 text-emerald-300 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700'
+                    } transition-colors`}
+                  >
+                    {jiraLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Creating in Jira...
+                      </>
+                    ) : (
+                      <>
+                        <Layers className="h-4 w-4 mr-2" />
+                        Create in Jira (Direct)
+                      </>
+                    )}
+                  </button>
+                  {jiraLoading && (
+                    <button
+                      onClick={handleCancelJiraCreation}
+                      className="flex items-center px-4 py-2 rounded-md font-medium bg-gradient-to-r from-red-500 to-pink-600 text-white hover:from-red-600 hover:to-pink-700 transition-colors"
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel
+                    </button>
                   )}
-                </button>
+                </>
               )}
               {result && (
                 <>
@@ -341,6 +399,15 @@ function App() {
                       </>
                     )}
                   </button>
+                  {jiraLoading && (
+                    <button
+                      onClick={handleCancelJiraCreation}
+                      className="flex items-center px-4 py-2 rounded-md font-medium bg-gradient-to-r from-red-500 to-pink-600 text-white hover:from-red-600 hover:to-pink-700 transition-colors"
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -358,6 +425,53 @@ function App() {
             </div>
 
             <div className="p-6">
+              {/* Jira Credentials Form (per user, not stored) */}
+              <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Jira Base URL</label>
+                  <input
+                    type="url"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 text-slate-200 placeholder-slate-500 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent"
+                    placeholder="https://your-domain.atlassian.net"
+                    value={jiraUrl}
+                    onChange={e => setJiraUrl(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Project Key</label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 text-slate-200 placeholder-slate-500 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent"
+                    placeholder="PROJ"
+                    value={jiraProjectKey}
+                    onChange={e => setJiraProjectKey(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Email</label>
+                  <input
+                    type="email"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 text-slate-200 placeholder-slate-500 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent"
+                    placeholder="user@email.com"
+                    value={jiraEmail}
+                    onChange={e => setJiraEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">API Token</label>
+                  <input
+                    type="password"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 text-slate-200 placeholder-slate-500 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent"
+                    placeholder="API Token"
+                    value={jiraApiToken}
+                    onChange={e => setJiraApiToken(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
               <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Custom Prompt */}
                 <div>

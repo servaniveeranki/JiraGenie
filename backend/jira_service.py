@@ -2,6 +2,7 @@ import logging
 from typing import Dict, List, Optional, Union
 from atlassian import Jira
 from config import settings
+from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
@@ -484,8 +485,8 @@ class JiraService:
             logger.error(f"Error creating Subtask: {str(e)}")
             return None
 
-    async def create_issues(self, data: Dict) -> Dict:
-        """Create Epics, Stories, and Subtasks in Jira"""
+    async def create_issues(self, data: Dict, request_obj: Request = None) -> Dict:
+        """Create Epics, Stories, and Subtasks in Jira with cancellation support"""
         results = {
             'epics': [],
             'stories': [],
@@ -495,20 +496,38 @@ class JiraService:
         
         try:
             for epic in data.get('epics', []):
+                # Check for cancellation
+                if request_obj and await request_obj.is_disconnected():
+                    logger.info("Client disconnected, cancelling ticket creation")
+                    results['errors'].append("Ticket creation was cancelled by client")
+                    return results
+                
                 # Create Epic
                 epic_result = await self.create_epic(epic)
                 if epic_result:
                     results['epics'].append(epic_result)
                     
-                    # Create Stories for this Epic, linked to the epic
+                    # Create Stories for this Epic, linked to epic
                     epic_key = epic_result['key']
                     for story in epic.get('stories', []):
+                        # Check for cancellation
+                        if request_obj and await request_obj.is_disconnected():
+                            logger.info("Client disconnected, cancelling ticket creation")
+                            results['errors'].append("Ticket creation was cancelled by client")
+                            return results
+                        
                         story_result = await self.create_story(story, epic_key)  # Link to epic
                         if story_result:
                             results['stories'].append(story_result)
                             
                             # Create Subtasks for this Story
                             for subtask in story.get('subtasks', []):
+                                # Check for cancellation
+                                if request_obj and await request_obj.is_disconnected():
+                                    logger.info("Client disconnected, cancelling ticket creation")
+                                    results['errors'].append("Ticket creation was cancelled by client")
+                                    return results
+                                
                                 subtask_result = await self.create_subtask(subtask, story_result['key'])
                                 if subtask_result:
                                     results['subtasks'].append(subtask_result)
