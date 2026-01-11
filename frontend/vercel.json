@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://<RENDER_BACKEND_URL>/api/$1"
+      "destination": "https://jiragenie-1.onrender.com//api/$1"
     }
   ]
 }
