@@ -28,7 +28,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
   "http://localhost:5173",
-  "https://jira-genie-6me44hik3-sofias-projects-ec574c4e.vercel.app"
+  "https://jira-genie-git-main-sofias-projects-ec574c4e.vercel.app"
 ]
 ,
     allow_credentials=True,
