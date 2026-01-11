@@ -178,6 +178,43 @@ Edit the `SYSTEM_PROMPT` in `backend/.env` or modify the default prompt in `back
 
 Edit `frontend/src/App.jsx` to customize the user interface and styling.
 
+## Deployment
+
+### Docker Compose (Local Full Stack)
+
+1. Build and start both services:
+   ```bash
+   docker-compose up --build
+   ```
+   - Backend: http://localhost:8000
+   - Frontend: http://localhost:3000
+
+2. Stop containers:
+   ```bash
+   docker-compose down
+   ```
+
+### Render Deployment (Backend)
+
+1. Push the backend code to your GitHub repo.
+2. Go to [Render](https://render.com/) and create a new Web Service:
+   - Select your repo and choose Python as the environment.
+   - Set the build command: `pip install -r requirements.txt`
+   - Set the start command: `uvicorn main:app --host 0.0.0.0 --port 10000`
+   - Set environment variables (copy from your `.env` file, including `GOOGLE_API_KEY`).
+   - Set port to `10000` (or as required by Render).
+3. Deploy and note your Render backend URL (e.g., `https://your-backend.onrender.com`).
+
+### Vercel Deployment (Frontend)
+
+1. Push the frontend code to your GitHub repo.
+2. In Vercel, import the repo and set the build output directory to `dist` (for Vite).
+3. Set environment variable `VITE_API_URL` to your Render backend URL (e.g., `https://your-backend.onrender.com`).
+4. (Optional) Use the provided `vercel.json` to rewrite `/api/*` calls to your backend.
+5. Deploy. Your frontend will be live on your Vercel domain and will proxy API requests to Render.
+
+---
+
 ## Troubleshooting
 
 **CORS Issues:**

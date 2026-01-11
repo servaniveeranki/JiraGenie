@@ -255,9 +255,9 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-slate-200">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-slate-200 fade-in">
       {/* Navigation */}
-      <nav className="bg-slate-800/80 backdrop-blur-md border-b border-slate-700/50 sticky top-0 z-50">
+      <nav className="bg-slate-800/80 backdrop-blur-md border-b border-slate-700/50 sticky top-0 z-50 shadow-lg">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
@@ -334,8 +334,8 @@ function App() {
 
       <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Upload Section */}
-        <div className="max-w-4xl mx-auto">
-          <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden shadow-lg">
+        <div className="max-w-4xl mx-auto fade-in">
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden shadow-lg card-hover">
             <div className="px-6 py-5 border-b border-slate-700/50 bg-gradient-to-r from-slate-800/50 to-slate-800/30">
               <h2 className="text-xl font-semibold text-white">Generate JIRA Tickets</h2>
               <p className="text-sm text-slate-400 mt-1">Upload requirements and let AI create your tickets</p>
@@ -510,7 +510,7 @@ function App() {
                 <div>
                   <h2 className="text-xl font-semibold text-white">Generated Tickets</h2>
                   <p className="text-sm text-slate-400">
-                    {result.stats.epics} Epics • {result.stats.stories} Stories • {result.stats.subtasks} Subtasks
+                    {result.stats?.epics || 0} Epics • {result.stats?.stories || 0} Stories • {result.stats?.subtasks || 0} Subtasks
                   </p>
                 </div>
                 
@@ -547,7 +547,7 @@ function App() {
                   getFilteredEpics().map((epic, epicIdx) => (
                     <div 
                       key={epicIdx} 
-                      className="bg-slate-800/30 rounded-xl border border-slate-700/50 overflow-hidden transition-all"
+                      className="bg-slate-800/30 rounded-xl border border-slate-700/50 overflow-hidden transition-all card-hover fade-in"
                     >
                       {/* Epic Header */}
                       <button

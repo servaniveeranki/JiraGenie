@@ -1,0 +1,18 @@
+
+services:
+  backend:
+    build: ./backend
+    container_name: jira_backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+  frontend:
+    build: ./frontend
+    container_name: jira_frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    restart: unless-stopped

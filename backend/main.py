@@ -1,10 +1,12 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from dotenv import load_dotenv
+load_dotenv()
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import google.generativeai as genai
 import os
-from dotenv import load_dotenv
+
 import json
 import base64
 from pathlib import Path
@@ -14,9 +16,6 @@ from jira_router import router as jira_router
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Load environment variables
-load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI(title="JIRA Ticket Generator")
@@ -172,7 +171,7 @@ async def root():
 @app.post("/api/generate-tickets", response_model=TicketGenerationResponse)
 async def generate_tickets(
     files: List[UploadFile] = File(...),
-    customPrompt: Optional[str] = None
+    customPrompt: Optional[str] = Form(None)
 ):
     """
     Generate JIRA tickets from requirements files (text and/or images) with optional custom prompt
@@ -196,8 +195,11 @@ async def generate_tickets(
                 image_bytes_list.append(content)
                 print(f"Image file: {file.filename} ({len(content)} bytes)")
         
+        if not requirements_text.strip() and not image_bytes_list:
+            raise HTTPException(status_code=400, detail="No requirements found. Please upload at least one .txt file or image file.")
+        # If only images are uploaded, provide a default text for requirements
         if not requirements_text.strip():
-            raise HTTPException(status_code=400, detail="No text requirements found. Please upload at least one .txt file.")
+            requirements_text = "No text requirements provided. Please analyze the following architecture diagrams and generate all possible epics, stories, and subtasks based on the images."
         
         # Call AI analysis with custom prompt if provided
         print('\n--- 2. Starting AI Analysis ---')
@@ -213,18 +215,40 @@ async def generate_tickets(
         print('\n--- 3. AI Analysis Complete - Partitions Found ---')
         if structured_data.get('epics'):
             print(f"Found {len(structured_data['epics'])} Epics:")
+            total_stories = 0
+            total_subtasks = 0
             for i, epic in enumerate(structured_data['epics']):
                 print(f"  [Epic {i+1}] {epic.get('summary', 'No summary')}")
                 if epic.get('stories'):
-                    print(f"    -> Contains {len(epic['stories'])} Stories")
+                    stories_count = len(epic['stories'])
+                    total_stories += stories_count
+                    print(f"    -> Contains {stories_count} Stories")
+                    # Count subtasks
+                    for story in epic['stories']:
+                        if story.get('subtasks'):
+                            total_subtasks += len(story['subtasks'])
         else:
             print("WARNING: No 'epics' array found in AI response.")
+        
+        # Calculate stats
+        epics_count = len(structured_data.get('epics', []))
+        total_stories_count = sum(
+            len(epic.get('stories', []))
+            for epic in structured_data.get('epics', [])
+        )
+        total_subtasks_count = sum(
+            len(story.get('subtasks', []))
+            for epic in structured_data.get('epics', [])
+            for story in epic.get('stories', [])
+        )
         
         # Return response
         return TicketGenerationResponse(
             message="Requirements analyzed successfully!",
             stats={
-                "epics": len(structured_data.get('epics', [])),
+                "epics": epics_count,
+                "stories": total_stories_count,
+                "subtasks": total_subtasks_count,
                 "imagesProcessed": len(image_bytes_list)
             },
             aiOutput=structured_data

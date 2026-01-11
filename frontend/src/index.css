@@ -14,4 +14,51 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(120deg, #10172a 0%, #232946 100%);
+  min-height: 100vh;
+  transition: background 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Inter', 'Segoe UI', 'Roboto', Arial, sans-serif;
+  letter-spacing: -0.01em;
+  font-weight: 700;
+  transition: color 0.3s;
+}
+
+button, input, textarea, select {
+  transition: background 0.3s, color 0.3s, box-shadow 0.3s, border 0.3s;
+}
+
+button:focus, input:focus, textarea:focus, select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px #6366f1;
+}
+
+/* Minimal fade-in animation for main containers */
+.fade-in {
+  animation: fadeIn 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Subtle hover for cards */
+.card-hover {
+  transition: box-shadow 0.3s, transform 0.3s;
+}
+.card-hover:hover {
+  box-shadow: 0 10px 32px 0 rgba(60, 80, 180, 0.14), 0 1.5px 4px 0 rgba(70, 70, 90, 0.10);
+  transform: translateY(-3px) scale(1.01);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #232946;
+  border-radius: 8px;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  background: transparent;
 }

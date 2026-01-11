@@ -12,8 +12,16 @@ load_dotenv()
 
 router = APIRouter(prefix="/api/jira", tags=["Jira Integration"])
 
-# Initialize Jira Service
-jira_service = JiraService()
+# Initialize Jira Service (may be None if JIRA credentials not configured)
+try:
+    jira_service = JiraService()
+    if not jira_service._is_configured():
+        logger = logging.getLogger(__name__)
+        logger.warning("JIRA service initialized but not configured. JIRA endpoints will return errors.")
+except Exception as e:
+    logger = logging.getLogger(__name__)
+    logger.error(f"Failed to initialize JIRA service: {str(e)}")
+    jira_service = None
 
 # Configure Google Generative AI
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -34,6 +42,15 @@ async def create_jira_tickets(request: JiraCreateRequest):
     """
     try:
         logger = logging.getLogger(__name__)
+        
+        if not jira_service or not jira_service._is_configured():
+            return JiraCreateResponse(
+                success=False,
+                message="JIRA service is not configured. Please set JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, and JIRA_PROJECT_KEY in the .env file.",
+                created_issues={},
+                errors=["JIRA credentials not configured"]
+            )
+        
         logger.info("Starting Jira ticket creation...")
         
         result = await jira_service.create_issues(request.ai_output)
@@ -80,73 +97,44 @@ async def create_jira_tickets_from_file(
     """
     logger = logging.getLogger(__name__)
     try:
+        if not jira_service or not jira_service._is_configured():
+            return JiraCreateResponse(
+                success=False,
+                message="JIRA service is not configured. Please set JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, and JIRA_PROJECT_KEY in the .env file.",
+                created_issues={},
+                errors=["JIRA credentials not configured"]
+            )
+        
         logger.info("Starting direct Jira ticket creation from file...")
         
         # Read requirements file
         requirements_text = ""
+        image_bytes_list = []
         for file in files:
             if file.filename.endswith('.txt'):
                 content = await file.read()
                 requirements_text += content.decode('utf-8') + "\n\n"
+            else:
+                image_bytes_list.append(await file.read())
         
+        if not requirements_text.strip() and not image_bytes_list:
+            raise HTTPException(status_code=400, detail="No requirements found. Please upload at least one .txt file or image file.")
         if not requirements_text.strip():
-            raise HTTPException(status_code=400, detail="No text requirements found. Please upload a .txt file.")
+            requirements_text = (
+                "The following upload contains only architecture diagrams or images. "
+                "Analyze these diagrams carefully and extract ALL possible EPICS, STORIES, and SUBTASKS that could be inferred from the system, workflows, modules, integrations, or features depicted. "
+                "If there are swimlanes, modules, or components, treat them as potential epics or stories. "
+                "For each, provide a summary, description, and any subtasks that can be logically deduced. "
+                "If you cannot extract anything, return an empty epics array."
+            )
         
-        # Run AI analysis
+        # Run AI analysis (reuse run_ai_analysis from main.py for consistency)
         logger.info("Running AI analysis on requirements...")
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        
-        system_prompt = customPrompt if customPrompt else os.getenv("SYSTEM_PROMPT", """
-Analyze the requirements document and extract ALL EPICS, STORIES, and SUBTASKS into JSON format.
-
-IMPORTANT INSTRUCTIONS:
-1. Extract ALL epics from the requirements (both FUNCTIONAL and NON-FUNCTIONAL categories)
-2. For each epic, extract ALL stories listed under it
-3. For each story, extract ALL subtasks listed under it
-4. Maintain the category information (functional vs non-functional)
-5. Preserve the priority levels mentioned in stories
-6. Keep the exact structure and hierarchy from the requirements
-
-Output Format:
-{
-  "epics": [
-    {
-      "summary": "Epic title from requirements",
-      "description": "Epic description from requirements",
-      "category": "FUNCTIONAL" or "NON-FUNCTIONAL",
-      "stories": [
-        {
-          "summary": "Story title from requirements",
-          "description": "Story description from requirements",
-          "priority": "Priority level if mentioned (High/Medium/Low)",
-          "subtasks": [
-            {
-              "summary": "Subtask description from requirements"
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
-
-Return ONLY valid JSON. No additional text or explanations.
-""")
-        
-        content_parts = [system_prompt, "\n\n**Requirements:**\n", requirements_text]
-        response = model.generate_content(content_parts)
-        
-        # Extract JSON
-        text = response.text
-        cleaned = text.replace("```json", "").replace("```", "").strip()
-        start_idx = cleaned.find('{')
-        end_idx = cleaned.rfind('}')
-        if start_idx != -1 and end_idx != -1:
-            json_text = cleaned[start_idx:end_idx + 1]
-            structured_data = json.loads(json_text)
-        else:
-            raise HTTPException(status_code=500, detail="AI response was not valid JSON")
-        
+        try:
+            from main import run_ai_analysis
+        except ImportError:
+            raise HTTPException(status_code=500, detail="Server misconfiguration: cannot import run_ai_analysis")
+        structured_data = await run_ai_analysis(requirements_text, image_bytes_list if image_bytes_list else None, customPrompt)
         logger.info(f"AI analysis complete. Found {len(structured_data.get('epics', []))} epics")
         
         # Create tickets directly
