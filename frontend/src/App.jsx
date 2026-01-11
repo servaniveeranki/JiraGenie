@@ -15,6 +15,8 @@ import {
   Download
 } from 'lucide-react';
 import axios from 'axios';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
 
 function App() {
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -85,11 +87,16 @@ function App() {
         formData.append('customPrompt', customPrompt.trim());
       }
 
-      const response = await axios.post('http://localhost:8000/api/generate-tickets', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await axios.post(
+  `${API_BASE_URL}/api/generate-tickets`,
+  formData,
+  {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  }
+);
+
 
       setResult(response.data);
     } catch (err) {
@@ -123,9 +130,13 @@ function App() {
     setJiraSuccess(null);
 
     try {
-      const response = await axios.post('http://localhost:8000/api/jira/create-tickets', {
-        ai_output: result.aiOutput
-      });
+      const response = await axios.post(
+  `${API_BASE_URL}/api/jira/create-tickets`,
+  {
+    ai_output: result.aiOutput
+  }
+);
+
       
       if (response.data.success) {
         setJiraSuccess(
@@ -169,11 +180,16 @@ function App() {
         formData.append('customPrompt', customPrompt.trim());
       }
 
-      const response = await axios.post('http://localhost:8000/api/jira/create-from-file', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await axios.post(
+  `${API_BASE_URL}/api/jira/create-from-file`,
+  formData,
+  {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  }
+);
+
       
       if (response.data.success) {
         setJiraSuccess(response.data.message);
