@@ -1,0 +1,89 @@
+PROJECT: E-Commerce Marketplace Platform
+==========================================
+
+Client: ABC Retail Solutions Pvt Ltd
+Date: January 2026
+Contact: projects@abcretail.com
+
+BUSINESS OBJECTIVE:
+Build an online marketplace where multiple sellers can list products and customers can purchase them. Similar to Amazon/Flipkart but focused on Indian market.
+
+TARGET AUDIENCE:
+- Customers: Urban millennials, age 25-45
+- Sellers: Small to medium businesses, individual vendors
+- Geographic: Initially Tier 1 & 2 cities in India
+
+CORE FEATURES NEEDED:
+
+1. Customer Side:
+   - Sign up with phone number or email
+   - Browse products by category
+   - Search and filter products
+   - Add to cart and wishlist
+   - Checkout with multiple payment options
+   - Track orders in real-time
+   - Write reviews and ratings
+
+2. Seller Side:
+   - Seller registration with business details
+   - Upload products with images, pricing, inventory
+   - Manage orders (accept, ship, cancel)
+   - View sales dashboard
+   - Payout tracking
+
+3. Payment Integration:
+   - We want to use Razorpay as primary payment gateway
+   - Support: Credit/Debit cards, UPI, Net banking, Wallets
+   - EMI options for purchases above ₹5,000
+   - Cash on Delivery (COD)
+   - Automatic refunds for cancellations
+
+4. Admin Panel:
+   - Approve/reject seller applications
+   - Manage product categories
+   - Monitor orders and disputes
+   - View revenue analytics
+   - Handle customer support tickets
+
+5. Notifications:
+   - Email and SMS for order updates
+   - Push notifications on mobile app
+   - WhatsApp notifications (optional)
+
+TECHNICAL PREFERENCES:
+- Mobile app for Android and iOS (React Native)
+- Web dashboard for sellers and admin (React.js)
+- Backend in Node.js or Python (your choice)
+- Database: PostgreSQL or MongoDB
+- Cloud: AWS or Google Cloud
+- Must handle 10,000+ daily orders
+
+INTEGRATION REQUIREMENTS:
+- Razorpay for payments (mandatory)
+- Shiprocket or Delhivery for logistics
+- SMS gateway (MSG91 or similar)
+- Email service (SendGrid)
+
+SECURITY & COMPLIANCE:
+- Secure payment processing (PCI compliance)
+- User data encryption
+- GDPR compliance for data privacy
+- GST invoice generation
+
+TIMELINE & BUDGET:
+- Phase 1 MVP: 3 months
+- Budget: ₹15-20 lakhs
+- Team: 4-5 developers
+
+SUCCESS METRICS:
+- 5,000 active users in first 3 months
+- 500 seller onboarding
+- 95%+ payment success rate
+- Average order value: ₹1,500
+
+PRIORITIES:
+HIGH: Payment integration, Order management, Product catalog
+MEDIUM: Reviews, Analytics dashboard
+LOW: WhatsApp notifications, Advanced filters
+
+Note: We need the platform to be scalable as we plan to expand to more cities in 6 months.

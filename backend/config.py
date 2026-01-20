@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     JIRA_EPIC_ISSUE_TYPE: str = Field(default="Epic", env="JIRA_EPIC_ISSUE_TYPE")
     JIRA_STORY_ISSUE_TYPE: str = Field(default="Story", env="JIRA_STORY_ISSUE_TYPE")
     JIRA_SUBTASK_ISSUE_TYPE: str = Field(default="Sub-task", env="JIRA_SUBTASK_ISSUE_TYPE")
+    # Epic field IDs (optional - will auto-detect if not provided)
+    JIRA_EPIC_NAME_FIELD: Optional[str] = Field(default=None, env="JIRA_EPIC_NAME_FIELD")
+    JIRA_EPIC_LINK_FIELD: Optional[str] = Field(default=None, env="JIRA_EPIC_LINK_FIELD")
     # Google AI API Key (required for ticket generation)
     GOOGLE_API_KEY: Optional[str] = Field(default=None, env="GOOGLE_API_KEY")
 

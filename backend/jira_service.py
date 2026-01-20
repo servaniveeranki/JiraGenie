@@ -28,8 +28,15 @@ class JiraService:
                 cloud=True
             )
             self.project_key = settings.JIRA_PROJECT_KEY
-            self.epic_name_field = self._get_epic_name_field()
-            self.epic_link_field = self._get_epic_link_field()
+            
+            # Get Epic fields from settings or auto-detect
+            self.epic_name_field = settings.JIRA_EPIC_NAME_FIELD
+            self.epic_link_field = settings.JIRA_EPIC_LINK_FIELD
+            
+            # Auto-detect if not in settings
+            if not self.epic_name_field or not self.epic_link_field:
+                self._auto_detect_epic_fields()
+            
             self.available_issue_types = self._get_available_issue_types()
             self.story_issue_type = self._detect_story_issue_type()
             self.subtask_issue_type = self._detect_subtask_issue_type()
@@ -47,19 +54,56 @@ class JiraService:
         """Check if JIRA service is properly configured"""
         return self.jira is not None and self.project_key is not None
         
-    def _get_epic_name_field(self) -> Optional[str]:
-        """Get the custom field ID for Epic Name - tries multiple detection methods"""
+    def _auto_detect_epic_fields(self):
+        """Automatically detect Epic Name and Epic Link field IDs"""
+        if not self._is_configured():
+            return
+            
+        try:
+            fields = self.jira.get_all_fields()
+            
+            for field in fields:
+                field_name = field.get('name', '').lower()
+                field_id = field.get('id', '')
+                
+                if 'epic name' in field_name and not self.epic_name_field:
+                    self.epic_name_field = field_id
+                    logger.info(f"Auto-detected Epic Name field: {field_id}")
+                
+                if 'epic link' in field_name and not self.epic_link_field:
+                    self.epic_link_field = field_id
+                    logger.info(f"Auto-detected Epic Link field: {field_id}")
+            
+            if not self.epic_name_field:
+                # Try common field IDs
+                common_epic_name_ids = [
+                    'customfield_10011', 'customfield_10021', 
+                    'customfield_10001', 'customfield_10002'
+                ]
+                for field_id in common_epic_name_ids:
+                    try:
+                        # Test if field exists
+                        test_field = next((f for f in fields if f['id'] == field_id), None)
+                        if test_field:
+                            self.epic_name_field = field_id
+                            logger.warning(f"Using fallback Epic Name field: {field_id}")
+                            break
+                    except:
+                        continue
+                        
+        except Exception as e:
+            logger.error(f"Error detecting Epic fields: {str(e)}")
+    
+    def _get_epic_link_field(self) -> Optional[str]:
+        """Get the custom field ID for Epic Link (used to link stories to epics)"""
         if not self._is_configured():
             return None
-        
-        # Common Epic Name field IDs across different JIRA instances
-        common_epic_name_fields = [
-            'customfield_10011',  # Most common
-            'customfield_10012',
-            'customfield_10013',
-        ]
-        
-        # Method 1: Try to get all fields and search for Epic Name
+            
+        # If already detected, return it
+        if self.epic_link_field:
+            return self.epic_link_field
+            
+        # First try to get all fields and search for Epic Link
         try:
             all_fields = self.jira.get_all_fields()
             for field in all_fields:
@@ -68,64 +112,9 @@ class JiraService:
                 schema = field.get('schema', {})
                 custom = schema.get('custom', '') if schema else ''
                 
-                # Check if this is the Epic Name field
-                if ('epic name' in field_name or 
-                    'epicname' in field_name.replace(' ', '') or
-                    field_id.endswith('epicname') or
-                    (custom and 'epicname' in custom.lower())):
-                    logger.info(f"Found Epic Name field: {field_id} ({field.get('name')})")
-                    return field_id
-        except Exception as e:
-            logger.debug(f"Error getting all fields: {str(e)}")
-        
-        # Method 2: Try to get the create metadata for Epic issue type
-        try:
-            metadata = self.jira.issue_createmeta(
-                project=self.project_key,
-                expand='projects.issuetypes.fields',
-                issuetypeNames=[settings.JIRA_EPIC_ISSUE_TYPE]
-            )
-            
-            if metadata and 'projects' in metadata and metadata['projects']:
-                project = metadata['projects'][0]
-                if 'issuetypes' in project and project['issuetypes']:
-                    for issue_type in project['issuetypes']:
-                        if issue_type.get('name') == settings.JIRA_EPIC_ISSUE_TYPE:
-                            fields = issue_type.get('fields', {})
-                            for field_id, field_data in fields.items():
-                                field_name = field_data.get('name', '').lower()
-                                schema = field_data.get('schema', {})
-                                custom = schema.get('custom', '') if schema else ''
-                                
-                                if ('epic name' in field_name or 
-                                    'epicname' in field_name.replace(' ', '') or
-                                    (custom and 'epicname' in custom.lower())):
-                                    logger.info(f"Found Epic Name field via metadata: {field_id} ({field_data.get('name')})")
-                                    return field_id
-        except Exception as e:
-            logger.debug(f"Error getting Epic Name field via metadata: {str(e)}")
-        
-        # Method 3: Try creating a test epic to see which fields are required/allowed
-        # This is too expensive, so we'll skip and return None
-        
-        logger.warning("Could not determine Epic Name field. Will try common field IDs or create without it.")
-        return None  # Return None instead of default, let create_epic try multiple options
-    
-    def _get_epic_link_field(self) -> str:
-        """Get the custom field ID for Epic Link (used to link stories to epics)"""
-        if not self._is_configured():
-            return 'customfield_10014'  # Default fallback
-        # First try to get all fields and search for Epic Link
-        try:
-            all_fields = self.jira.get_all_fields()
-            for field in all_fields:
-                field_name = field.get('name', '').lower()
-                field_id = field.get('id', '')
-                schema = field.get('schema', {})
-                custom = schema.get('custom', '')
-                
                 if 'epic link' in field_name or 'epiclink' in field_name or custom.endswith('epiclink'):
                     logger.info(f"Found Epic Link field: {field_id} ({field.get('name')})")
+                    self.epic_link_field = field_id
                     return field_id
         except Exception as e:
             logger.debug(f"Error getting all fields: {str(e)}")
@@ -148,18 +137,21 @@ class JiraService:
                             for field_id, field_data in fields.items():
                                 field_name = field_data.get('name', '').lower()
                                 schema = field_data.get('schema', {})
-                                custom = schema.get('custom', '')
+                                custom = schema.get('custom', '') if schema else ''
                                 
                                 if 'epic link' in field_name or 'epiclink' in field_name or custom.endswith('epiclink'):
                                     logger.info(f"Found Epic Link field via metadata: {field_id} ({field_data.get('name')})")
+                                    self.epic_link_field = field_id
                                     return field_id
             
             logger.warning("Could not determine Epic Link field via metadata, using default fallback")
-            return 'customfield_10014'  # Most common Epic Link field ID
+            self.epic_link_field = 'customfield_10014'  # Most common Epic Link field ID
+            return self.epic_link_field
             
         except Exception as e:
             logger.warning(f"Error getting Epic Link field metadata: {str(e)}")
-            return 'customfield_10014'  # Default fallback
+            self.epic_link_field = 'customfield_10014'  # Default fallback
+            return self.epic_link_field
     
     def _get_available_issue_types(self) -> List[Dict]:
         """Get all available issue types for the project"""
@@ -237,24 +229,12 @@ class JiraService:
         return configured_type
 
     async def create_epic(self, epic_data: Dict) -> Optional[Dict]:
-        """Create an Epic in Jira - tries multiple methods to set Epic Name"""
+        """Create an Epic in JIRA - optimized for modern JIRA Cloud"""
         if not self._is_configured():
             logger.error("JIRA service is not configured. Please set JIRA credentials in .env file.")
             return None
         
-        # Common Epic Name field IDs to try (in order of likelihood)
-        epic_name_field_candidates = []
-        if self.epic_name_field:
-            epic_name_field_candidates.append(self.epic_name_field)
-        
-        # Add common field IDs as fallbacks
-        epic_name_field_candidates.extend([
-            'customfield_10011',
-            'customfield_10012', 
-            'customfield_10013'
-        ])
-        
-        # Base issue structure
+        # Build base issue structure (modern JIRA Cloud approach)
         base_issue = {
             'project': {'key': self.project_key},
             'summary': epic_data['summary'],
@@ -262,73 +242,60 @@ class JiraService:
             'issuetype': {'name': settings.JIRA_EPIC_ISSUE_TYPE}
         }
         
-        # Try creating with Epic Name field (if we have candidates)
-        if epic_name_field_candidates:
-            for field_id in epic_name_field_candidates:
-                try:
-                    issue = base_issue.copy()
-                    issue[field_id] = epic_data['summary']  # Epic Name should match summary
-                    
-                    response = self.jira.issue_create(fields=issue)
-                    logger.info(f"Created Epic with Epic Name field ({field_id}): {response['key']} - {epic_data['summary']}")
-                    # Cache the working field ID for future use
-                    self.epic_name_field = field_id
-                    return {
-                        'key': response['key'],
-                        'self': response['self'],
-                        'summary': epic_data['summary']
-                    }
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    # If it's a field error, try next candidate
-                    if 'field' in error_msg and ('cannot be set' in error_msg or 'invalid' in error_msg or 'not found' in error_msg):
-                        logger.debug(f"Epic Name field {field_id} failed: {str(e)}, trying next...")
-                        continue
-                    # For other errors (like required field missing), try without Epic Name
-                    elif 'required' not in error_msg and 'must be provided' not in error_msg:
-                        logger.warning(f"Unexpected error with field {field_id}: {str(e)}, trying without Epic Name field")
-                        break
-                    continue
-        
-        # Fallback: Create without Epic Name field (Epic will still be created, just without that field populated)
+        # Strategy 1: Try direct creation (modern JIRA Cloud doesn't need Epic Name field)
         try:
             response = self.jira.issue_create(fields=base_issue)
-            logger.info(f"Created Epic (without Epic Name field): {response['key']} - {epic_data['summary']}")
-            
-            # Try to update Epic Name after creation if we haven't tried all candidates yet
-            if epic_name_field_candidates:
-                epic_key = response['key']
-                for field_id in epic_name_field_candidates:
-                    try:
-                        # Try different update methods based on atlassian library API
-                        update_fields = {field_id: epic_data['summary']}
-                        # Method 1: Try issue_update with fields dict
-                        try:
-                            self.jira.update_issue(epic_key, fields=update_fields)
-                            logger.info(f"Successfully updated Epic Name field ({field_id}) for {epic_key} after creation")
-                            self.epic_name_field = field_id
-                            break
-                        except AttributeError:
-                            # Method 2: Try update_issue_field
-                            try:
-                                self.jira.update_issue_field(epic_key, {field_id: epic_data['summary']})
-                                logger.info(f"Successfully updated Epic Name field ({field_id}) for {epic_key} after creation")
-                                self.epic_name_field = field_id
-                                break
-                            except (AttributeError, Exception) as e2:
-                                logger.debug(f"Update method not available: {str(e2)}")
-                                continue
-                    except Exception as e:
-                        logger.debug(f"Failed to update Epic Name field {field_id} for {epic_key}: {str(e)}")
-                        continue
-            
+            logger.info(f"✓ Created Epic (modern approach): {response['key']} - {epic_data['summary']}")
             return {
                 'key': response['key'],
                 'self': response['self'],
                 'summary': epic_data['summary']
             }
         except Exception as e:
-            logger.error(f"Error creating Epic (all attempts failed): {str(e)}")
+            error_msg = str(e).lower()
+            logger.debug(f"Modern Epic creation failed: {str(e)}")
+            
+            # Strategy 2: Try with Epic Name field if we detected one
+            if self.epic_name_field and ('field' in error_msg or 'required' in error_msg):
+                try:
+                    issue = base_issue.copy()
+                    issue[self.epic_name_field] = epic_data['summary']
+                    
+                    response = self.jira.issue_create(fields=issue)
+                    logger.info(f"✓ Created Epic with Epic Name field ({self.epic_name_field}): {response['key']} - {epic_data['summary']}")
+                    return {
+                        'key': response['key'],
+                        'self': response['self'],
+                        'summary': epic_data['summary']
+                    }
+                except Exception as e2:
+                    logger.debug(f"Epic creation with Epic Name field failed: {str(e2)}")
+            
+            # Strategy 3: Try common Epic Name field IDs
+            common_field_ids = ['customfield_10011', 'customfield_10012', 'customfield_10013', 'customfield_10021']
+            for field_id in common_field_ids:
+                if field_id == self.epic_name_field:
+                    continue  # Already tried this one
+                    
+                try:
+                    issue = base_issue.copy()
+                    issue[field_id] = epic_data['summary']
+                    
+                    response = self.jira.issue_create(fields=issue)
+                    logger.info(f"✓ Created Epic with fallback field ({field_id}): {response['key']} - {epic_data['summary']}")
+                    # Cache the working field ID
+                    self.epic_name_field = field_id
+                    return {
+                        'key': response['key'],
+                        'self': response['self'],
+                        'summary': epic_data['summary']
+                    }
+                except Exception as fallback_error:
+                    logger.debug(f"Fallback field {field_id} failed: {str(fallback_error)}")
+                    continue
+            
+            # All strategies failed
+            logger.error(f"✗ All Epic creation strategies failed for '{epic_data['summary']}': {str(e)}")
             return None
 
     async def create_story(self, story_data: Dict, epic_key: str = None) -> Optional[Dict]:
