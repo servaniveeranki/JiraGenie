@@ -1,176 +1,89 @@
+
+
 from dotenv import load_dotenv
 load_dotenv()
+
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-import google.generativeai as genai
 import os
-
-import json
-import base64
-from pathlib import Path
 import logging
-from jira_router import router as jira_router
+from pathlib import Path
+
+# Import AI service (NOT from router to avoid circular imports)
+from ai_service import run_ai_analysis
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
-app = FastAPI(title="JIRA Ticket Generator")
+app = FastAPI(
+    title="JIRA Ticket Generator",
+    description="AI-powered JIRA ticket generation from requirements",
+    version="2.0.0"
+)
 
-# Include Jira router
-app.include_router(jira_router)
-
-# Configure CORS
+# ============================================
+# CRITICAL FIX #1: ADD CORS BEFORE ROUTERS
+# ============================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-  "http://localhost:5173",
-  "https://jira-genie-git-main-sofias-projects-ec574c4e.vercel.app"
-]
-,
+        # Local development
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+        
+        # Production Vercel deployments
+        "https://jira-genie.vercel.app",
+        "https://jira-genie-git-main-sofias-projects-ec574c4e.vercel.app",
+        
+        # Allow all Vercel preview deployments
+        "https://jira-genie-*.vercel.app",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all methods (GET, POST, PUT, DELETE, OPTIONS, etc.)
+    allow_headers=["*"],  # Allow all headers
 )
 
-# Configure Google Generative AI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+# ============================================
+# INCLUDE ROUTERS AFTER CORS
+# ============================================
+from jira_router import router as jira_router
+app.include_router(jira_router)
 
-# Pydantic models
+# ============================================
+# PYDANTIC MODELS
+# ============================================
 class TicketGenerationResponse(BaseModel):
     message: str
     stats: dict
     aiOutput: dict
 
-# AI Analysis Function
-async def run_ai_analysis(requirements_text: str, images: List[bytes] = None, custom_prompt: str = None):
-    """
-    Analyze requirements using Google Gemini AI
-    Supports both text and image inputs
-    """
-    try:
-        # Use gemini-2.5-flash - supports both text and images
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        
-        # Use custom prompt if provided, otherwise use optimized default
-        system_prompt = custom_prompt if custom_prompt else os.getenv("SYSTEM_PROMPT", """
-Analyze the requirements document and extract ALL EPICS, STORIES, and SUBTASKS into JSON format.
-
-IMPORTANT INSTRUCTIONS:
-1. Extract ALL epics from the requirements (both FUNCTIONAL and NON-FUNCTIONAL categories)
-2. For each epic, extract ALL stories listed under it
-3. For each story, extract ALL subtasks listed under it
-4. Maintain the category information (functional vs non-functional)
-5. Preserve the priority levels mentioned in stories
-6. Keep the exact structure and hierarchy from the requirements
-
-Output Format:
-{
-  "epics": [
-    {
-      "summary": "Epic title from requirements",
-      "description": "Epic description from requirements",
-      "category": "FUNCTIONAL" or "NON-FUNCTIONAL",
-      "epicNumber": "Epic number (e.g., 1, 2, 3...)",
-      "stories": [
-        {
-          "summary": "Story title from requirements",
-          "description": "Story description from requirements",
-          "priority": "Priority level if mentioned (High/Medium/Low)",
-          "storyNumber": "Story number within epic",
-          "subtasks": [
-            {
-              "summary": "Subtask description from requirements",
-              "subtaskNumber": "Subtask number"
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
-
-CRITICAL: Extract EVERY epic from the requirements document. Do not limit the number of epics.
-If the requirements have 17 epics, output all 17 epics with their complete hierarchy.
-
-Return ONLY valid JSON. No additional text or explanations.
-""")
-        
-        # Prepare content for AI
-        content_parts = [system_prompt, "\n\n**Requirements:**\n", requirements_text]
-        
-        # Add images if provided
-        if images and len(images) > 0:
-            content_parts.append("\n\n**Architecture Diagrams:**\n")
-            for idx, img_bytes in enumerate(images):
-                # Upload image to Gemini
-                image_part = {
-                    'mime_type': 'image/png',
-                    'data': img_bytes
-                }
-                content_parts.append(image_part)
-        
-        print("--- Sending prompt to AI... ---")
-        response = model.generate_content(content_parts)
-        
-        print("--- AI response received ---")
-        
-        # Clean up response - robust JSON extraction
-        text = response.text
-        
-        # Try multiple cleaning strategies
-        def extract_json(text_input):
-            # Strategy 1: Remove markdown code blocks
-            cleaned = text_input.replace("```json", "").replace("```", "").strip()
-            try:
-                return json.loads(cleaned)
-            except json.JSONDecodeError:
-                pass
-            
-            # Strategy 2: Find JSON between curly braces
-            start_idx = text_input.find('{')
-            end_idx = text_input.rfind('}')
-            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                json_text = text_input[start_idx:end_idx + 1]
-                try:
-                    return json.loads(json_text)
-                except json.JSONDecodeError:
-                    pass
-            
-            # Strategy 3: Try to find and parse largest JSON object
-            import re
-            json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
-            matches = re.findall(json_pattern, text_input, re.DOTALL)
-            for match in reversed(matches):  # Try largest first
-                try:
-                    return json.loads(match)
-                except json.JSONDecodeError:
-                    continue
-            
-            return None
-        
-        # Parse JSON
-        structured_data = extract_json(text)
-        
-        if structured_data is None:
-            print(f"Failed to parse AI response as JSON.")
-            print(f"Response preview (first 500 chars): {text[:500]}")
-            print(f"Response preview (last 500 chars): {text[-500:]}")
-            raise HTTPException(status_code=500, detail="AI response was not valid JSON")
-        
-        return structured_data
-            
-    except Exception as e:
-        print(f"Error in AI analysis: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
-
-# Routes
+# ============================================
+# ROUTES
+# ============================================
 @app.get("/")
 async def root():
-    return {"message": "JIRA Ticket Generator API", "status": "running"}
+    """Health check endpoint"""
+    return {
+        "message": "JIRA Ticket Generator API",
+        "status": "running",
+        "version": "2.0.0",
+        "endpoints": {
+            "generate_tickets": "/api/generate-tickets",
+            "jira_create_from_file": "/api/jira/create-from-file",
+            "jira_create_tickets": "/api/jira/create-tickets"
+        }
+    }
+
+@app.get("/health")
+async def health_check():
+    """Health check for deployment platforms"""
+    return {"status": "healthy", "service": "jira-ticket-generator"}
 
 @app.post("/api/generate-tickets", response_model=TicketGenerationResponse)
 async def generate_tickets(
@@ -179,12 +92,19 @@ async def generate_tickets(
 ):
     """
     Generate JIRA tickets from requirements files (text and/or images) with optional custom prompt
+    
+    This endpoint:
+    1. Accepts multiple files (text and images)
+    2. Analyzes them with AI
+    3. Returns structured ticket data (does NOT create in JIRA)
+    
+    For direct JIRA creation, use /api/jira/create-from-file instead
     """
     try:
         requirements_text = ""
         image_bytes_list = []
         
-        print('\n--- 1. Files Received ---')
+        logger.info('=== FILES RECEIVED ===')
         
         # Process all uploaded files
         for file in files:
@@ -193,22 +113,30 @@ async def generate_tickets(
             # Check if it's a text file
             if file.filename.endswith('.txt'):
                 requirements_text += content.decode('utf-8') + "\n\n"
-                print(f"Text file: {file.filename}")
+                logger.info(f"Text file: {file.filename}")
             # Otherwise treat as image
             else:
                 image_bytes_list.append(content)
-                print(f"Image file: {file.filename} ({len(content)} bytes)")
+                logger.info(f"Image file: {file.filename} ({len(content)} bytes)")
         
         if not requirements_text.strip() and not image_bytes_list:
-            raise HTTPException(status_code=400, detail="No requirements found. Please upload at least one .txt file or image file.")
+            raise HTTPException(
+                status_code=400,
+                detail="No requirements found. Please upload at least one .txt file or image file."
+            )
+        
         # If only images are uploaded, provide a default text for requirements
         if not requirements_text.strip():
-            requirements_text = "No text requirements provided. Please analyze the following architecture diagrams and generate all possible epics, stories, and subtasks based on the images."
+            requirements_text = (
+                "No text requirements provided. Please analyze the following architecture diagrams "
+                "and generate all possible epics, stories, and subtasks based on the images."
+            )
         
         # Call AI analysis with custom prompt if provided
-        print('\n--- 2. Starting AI Analysis ---')
+        logger.info('=== STARTING AI ANALYSIS ===')
         if customPrompt:
-            print("Using custom prompt")
+            logger.info("Using custom prompt")
+        
         structured_data = await run_ai_analysis(
             requirements_text, 
             image_bytes_list if image_bytes_list else None,
@@ -216,23 +144,29 @@ async def generate_tickets(
         )
         
         # Log partitions
-        print('\n--- 3. AI Analysis Complete - Partitions Found ---')
+        logger.info('=== AI ANALYSIS COMPLETE ===')
         if structured_data.get('epics'):
-            print(f"Found {len(structured_data['epics'])} Epics:")
+            epics_count = len(structured_data['epics'])
+            logger.info(f"Found {epics_count} Epics")
+            
             total_stories = 0
             total_subtasks = 0
+            
             for i, epic in enumerate(structured_data['epics']):
-                print(f"  [Epic {i+1}] {epic.get('summary', 'No summary')}")
+                logger.info(f"  [Epic {i+1}] {epic.get('summary', 'No summary')}")
                 if epic.get('stories'):
                     stories_count = len(epic['stories'])
                     total_stories += stories_count
-                    print(f"    -> Contains {stories_count} Stories")
+                    logger.info(f"    -> Contains {stories_count} Stories")
+                    
                     # Count subtasks
                     for story in epic['stories']:
                         if story.get('subtasks'):
                             total_subtasks += len(story['subtasks'])
+            
+            logger.info(f"Total: {epics_count} Epics, {total_stories} Stories, {total_subtasks} Subtasks")
         else:
-            print("WARNING: No 'epics' array found in AI response.")
+            logger.warning("No 'epics' array found in AI response")
         
         # Calculate stats
         epics_count = len(structured_data.get('epics', []))
@@ -258,10 +192,22 @@ async def generate_tickets(
             aiOutput=structured_data
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error in /api/generate-tickets: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Server error during analysis: {str(e)}")
+        logger.error(f"Error in /api/generate-tickets: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Server error during analysis: {str(e)}"
+        )
+
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=True
+    )
