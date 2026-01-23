@@ -238,9 +238,11 @@ async def create_jira_tickets_from_file(
                 logger.info(f"Processed image file: {file.filename} ({len(content)} bytes)")
         
         if not requirements_text.strip() and not image_bytes_list:
-            raise HTTPException(
-                status_code=400,
-                detail="No requirements found. Please upload at least one .txt file or image file."
+            return JiraCreateResponse(
+                success=False,
+                message="No requirements found. Please upload at least one .txt file or image file.",
+                created_issues={},
+                errors=["No files provided"]
             )
         
         # If only images are uploaded, provide a default text
@@ -271,6 +273,25 @@ async def create_jira_tickets_from_file(
             image_bytes_list if image_bytes_list else None,
             customPrompt
         )
+        
+        # ============================================
+        # CRITICAL FIX #2: Check for AI errors properly
+        # ============================================
+        if isinstance(structured_data, dict) and structured_data.get("error"):
+            error_type = structured_data.get("error")
+            error_message = structured_data.get("message")
+            error_details = structured_data.get("details", "")
+            
+            logger.error(f"AI analysis failed: {error_type} - {error_message}")
+            
+            # Return proper JiraCreateResponse (NOT raising exception)
+            return JiraCreateResponse(
+                success=False,
+                message=error_message,
+                created_issues={},
+                errors=[f"{error_type}: {error_message}", error_details]
+            )
+        
         logger.info(f"AI analysis complete. Found {len(structured_data.get('epics', []))} epics")
         
         # Check for cancellation after AI analysis
@@ -318,8 +339,6 @@ async def create_jira_tickets_from_file(
             created_issues={},
             errors=[error_msg]
         )
-    except HTTPException:
-        raise
     except Exception as e:
         error_msg = f"Failed to create JIRA tickets from file: {str(e)}"
         logger.error(error_msg, exc_info=True)

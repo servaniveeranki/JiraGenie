@@ -3,8 +3,9 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import os
@@ -26,7 +27,7 @@ app = FastAPI(
 )
 
 # ============================================
-# CRITICAL FIX #1: ADD CORS BEFORE ROUTERS
+# CRITICAL FIX #1: ADD CORS BEFORE EVERYTHING
 # ============================================
 app.add_middleware(
     CORSMiddleware,
@@ -41,13 +42,35 @@ app.add_middleware(
         "https://jira-genie.vercel.app",
         "https://jira-genie-git-main-sofias-projects-ec574c4e.vercel.app",
         
-        # Allow all Vercel preview deployments
-        "https://jira-genie-*.vercel.app",
+        # Wildcard for Vercel preview deployments (note: use specific domains for production)
+        # Add more specific preview URLs as needed
     ],
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods (GET, POST, PUT, DELETE, OPTIONS, etc.)
     allow_headers=["*"],  # Allow all headers
 )
+
+# ============================================
+# GLOBAL EXCEPTION HANDLER (ensures CORS on errors)
+# ============================================
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Global exception handler to ensure CORS headers are ALWAYS present
+    This catches any unhandled exceptions and returns proper JSON with CORS
+    """
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": "Internal server error",
+            "error": str(exc)
+        },
+        headers={
+            "Access-Control-Allow-Origin": "*",  # Failsafe CORS header
+        }
+    )
 
 # ============================================
 # INCLUDE ROUTERS AFTER CORS
@@ -142,6 +165,21 @@ async def generate_tickets(
             image_bytes_list if image_bytes_list else None,
             customPrompt
         )
+        
+        # ============================================
+        # CRITICAL FIX #2: Check for AI errors
+        # ============================================
+        if isinstance(structured_data, dict) and structured_data.get("error"):
+            error_type = structured_data.get("error")
+            error_message = structured_data.get("message")
+            
+            logger.error(f"AI analysis failed: {error_type} - {error_message}")
+            
+            # Return error response with proper structure (not raising exception)
+            raise HTTPException(
+                status_code=429 if error_type == "RATE_LIMIT" else 500,
+                detail=error_message
+            )
         
         # Log partitions
         logger.info('=== AI ANALYSIS COMPLETE ===')
